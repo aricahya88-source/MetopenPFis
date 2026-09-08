@@ -54,6 +54,7 @@ function api(request) {
       case 'adminReviewProjectPlan': return ok_(adminReviewProjectPlan_(request,payload));
       case 'adminGradebookActivities': return ok_(adminGradebookActivities_(request));
       case 'adminActivityRoster': return ok_(adminActivityRoster_(request,payload));
+      case 'adminStudentAssessment': return ok_(adminStudentAssessment_(request,payload));
       case 'adminSaveGrade': return ok_(adminSaveGrade_(request,payload));
       case 'adminGetRubricEvaluation': return ok_(adminGetRubricEvaluation_(request,payload));
       case 'adminSaveRubricEvaluation': return ok_(adminSaveRubricEvaluation_(request,payload));
