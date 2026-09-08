@@ -430,7 +430,8 @@ function adminSaveGrade_(request,payload){
   var now=nowIso_(),targets=[String(payload.user_id)],submission=null;
   if(payload.submission_id){submission=findOne_(LMS.SHEETS.SUBMISSIONS,'submission_id',payload.submission_id);if(submission&&submission.group_id){targets=findMany_(LMS.SHEETS.GROUP_MEMBERS,'group_id',submission.group_id).map(function(m){return String(m.user_id);});if(!targets.length)targets=[String(payload.user_id)];}}
   var feedback=sanitizeHtml_(payload.feedback_html),saved=[];targets.forEach(function(uid){var existing=findMany_(LMS.SHEETS.GRADES,'activity_id',a.activity_id).filter(function(g){return g.user_id===uid;})[0],id=existing?existing.grade_id:makeId_('GRD');var row={grade_id:id,activity_id:a.activity_id,user_id:uid,submission_id:String(payload.submission_id||''),score:score,max_score:100,feedback_html:feedback,published:payload.published!==false,graded_by:admin.user_id,graded_at:now,updated_at:now};upsertObj_(LMS.SHEETS.GRADES,'grade_id',row);saved.push(cleanObj_(row));});
-  if(submission&&feedback){appendObj_(LMS.SHEETS.COMMENTS,{comment_id:makeId_('CMT'),entity_type:'submission',entity_id:submission.submission_id,user_id:admin.user_id,parent_comment_id:'',content_html:feedback,created_at:now,updated_at:now});}
+  // v1.0.5: feedback penilaian disimpan hanya di GRADES.feedback_html.
+  // Tidak lagi diduplikasi sebagai komentar submission karena halaman tugas memakai workflow feedback penilaian, bukan komentar.
   log_(admin.user_id,'SAVE_GRADE','activity',a.activity_id,{user_ids:targets,score:score,max_score:100,group_applied:targets.length>1});return saved[0];
 }
 
@@ -467,16 +468,28 @@ function adminImportGrades_(request,payload){
   var admin=requireAdmin_(request),input=payload.rows||[];if(!Array.isArray(input)||!input.length)throw new Error('Tidak ada baris penilaian untuk diimport.');if(input.length>100)throw new Error('Maksimal 100 baris per batch.');
   var activities={},users={},submissions={},groupMembers={},gradeIndex={},now=nowIso_();
   rows_(LMS.SHEETS.ACTIVITIES).forEach(function(a){activities[a.activity_id]=a;});rows_(LMS.SHEETS.USERS).forEach(function(u){users[u.user_id]=u;});rows_(LMS.SHEETS.SUBMISSIONS).forEach(function(x){submissions[x.submission_id]=x;});rows_(LMS.SHEETS.GROUP_MEMBERS).forEach(function(m){if(!groupMembers[m.group_id])groupMembers[m.group_id]=[];groupMembers[m.group_id].push(String(m.user_id));});rows_(LMS.SHEETS.GRADES).forEach(function(g){gradeIndex[String(g.activity_id)+'|'+String(g.user_id)]=g;});
-  var gradeRows=[],commentRows=[],errors=[],processed=0,groupApplied=0;
+  var gradeRows=[],errors=[],processed=0,groupApplied=0,feedbackRecords=0;
   input.forEach(function(r,i){
-    try{var activityId=String(r.activity_id||''),userId=String(r.user_id||''),submissionId=String(r.submission_id||''),a=activities[activityId];if(!a)throw new Error('aktivitas tidak ditemukan');if(String(a.type)==='quiz')throw new Error('kuis dinilai otomatis');if(!users[userId])throw new Error('user tidak ditemukan');var hasScore=!(r.score===null||r.score===undefined||String(r.score).trim()===''),score=hasScore?Number(r.score):null;if(hasScore&&(isNaN(score)||score<0||score>100))throw new Error('nilai harus kosong atau 0–100');var comment=String(r.comment||'').trim();if(!comment)throw new Error('komentar wajib diisi');var feedback=feedbackTextToHtml_(comment),sub=submissionId?submissions[submissionId]:null,targets=[userId];if(sub&&sub.group_id&&groupMembers[sub.group_id]&&groupMembers[sub.group_id].length){targets=groupMembers[sub.group_id];groupApplied++;}
-      if(hasScore){targets.forEach(function(uid){var key=activityId+'|'+uid,existing=gradeIndex[key],row={grade_id:existing?existing.grade_id:makeId_('GRD'),activity_id:activityId,user_id:uid,submission_id:submissionId,score:score,max_score:100,feedback_html:feedback,published:true,graded_by:admin.user_id,graded_at:now,updated_at:now};gradeRows.push(row);gradeIndex[key]=row;});}
-      if(sub){commentRows.push({comment_id:makeId_('CMT'),entity_type:'submission',entity_id:sub.submission_id,user_id:admin.user_id,parent_comment_id:'',content_html:feedback,created_at:now,updated_at:now});}
+    try{
+      var activityId=String(r.activity_id||''),userId=String(r.user_id||''),submissionId=String(r.submission_id||''),a=activities[activityId];
+      if(!a)throw new Error('aktivitas tidak ditemukan');if(String(a.type)==='quiz')throw new Error('kuis dinilai otomatis');if(!users[userId])throw new Error('user tidak ditemukan');
+      var hasScore=!(r.score===null||r.score===undefined||String(r.score).trim()===''),score=hasScore?Number(r.score):null;if(hasScore&&(isNaN(score)||score<0||score>100))throw new Error('nilai harus kosong atau 0–100');
+      var feedbackText=String(r.feedback!==undefined?r.feedback:(r.feedback_html!==undefined?r.feedback_html:(r.comment||''))).trim();
+      if(!hasScore&&!feedbackText)throw new Error('nilai dan feedback sama-sama kosong');
+      var feedback=feedbackText?feedbackTextToHtml_(feedbackText):'',sub=submissionId?submissions[submissionId]:null,targets=[userId];
+      if(sub&&sub.group_id&&groupMembers[sub.group_id]&&groupMembers[sub.group_id].length){targets=groupMembers[sub.group_id];groupApplied++;}
+      targets.forEach(function(uid){
+        var key=activityId+'|'+uid,existing=gradeIndex[key];
+        if(!hasScore&&!existing)throw new Error('feedback tanpa nilai hanya dapat diimport jika nilai sebelumnya sudah tersedia');
+        var finalScore=hasScore?score:Number(existing.score||0),row={grade_id:existing?existing.grade_id:makeId_('GRD'),activity_id:activityId,user_id:uid,submission_id:submissionId||(existing?String(existing.submission_id||''):''),score:finalScore,max_score:100,feedback_html:feedbackText?feedback:String(existing&&existing.feedback_html||''),published:true,graded_by:admin.user_id,graded_at:now,updated_at:now};
+        gradeRows.push(row);gradeIndex[key]=row;if(feedbackText)feedbackRecords++;
+      });
       processed++;
     }catch(e){errors.push('Baris '+(i+2)+': '+String(e&&e.message?e.message:e));}
   });
-  if(gradeRows.length)bulkUpsert_(LMS.SHEETS.GRADES,'grade_id',gradeRows);if(commentRows.length)bulkUpsert_(LMS.SHEETS.COMMENTS,'comment_id',commentRows);SpreadsheetApp.flush();log_(admin.user_id,'IMPORT_GRADES','gradebook','BATCH',{rows:processed,grade_records:gradeRows.length,comments:commentRows.length,group_rows:groupApplied,errors:errors.length});
-  return {processed:processed,grade_records:gradeRows.length,comments:commentRows.length,group_rows:groupApplied,errors:errors};
+  if(gradeRows.length)bulkUpsert_(LMS.SHEETS.GRADES,'grade_id',gradeRows);SpreadsheetApp.flush();
+  log_(admin.user_id,'IMPORT_GRADES','gradebook','BATCH',{rows:processed,grade_records:gradeRows.length,feedback_records:feedbackRecords,group_rows:groupApplied,errors:errors.length});
+  return {processed:processed,grade_records:gradeRows.length,feedback_records:feedbackRecords,comments:0,group_rows:groupApplied,errors:errors};
 }
 
 function adminSeedBundledContent_(request,payload){

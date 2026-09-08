@@ -110,3 +110,23 @@ h1,h2,h3,h4,p{margin-top:0}h1,h2,h3,h4{letter-spacing:-.025em}p{line-height:1.65
 /* METOPEN PFIS branding */
 .research-path-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}.research-step{min-height:205px;display:flex;flex-direction:column;gap:8px}.research-step .step-no{width:40px;height:40px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,#2E7D32,#66BB6A);color:#fff;font-weight:900}.research-step:nth-child(even) .step-no{background:linear-gradient(135deg,#F57C00,#FFA040)}.research-arrow{display:none}.rubric-table{width:100%;border-collapse:collapse;font-size:.78rem}.rubric-table th,.rubric-table td{border:1px solid var(--line);padding:9px;vertical-align:top}.rubric-table th{background:#f1f5ef;text-align:left}.rubric-level{min-width:170px}.rubric-score-grid{display:grid;grid-template-columns:1fr 120px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--line)}.rubric-score-grid:last-child{border-bottom:0}.rubric-score-grid select{width:100%;border:1px solid var(--line);border-radius:12px;padding:9px;background:#fff}.rubric-total{display:flex;align-items:center;justify-content:space-between;padding:14px;border-radius:16px;background:linear-gradient(135deg,#edf7e9,#fff4e7);border:1px solid rgba(46,125,50,.13)}.source-note{font-size:.76rem;color:var(--muted);padding:10px 12px;border-left:3px solid var(--amber);background:#fff8ef;border-radius:10px}.pipeline-line{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pipeline-node{padding:7px 10px;border-radius:999px;background:#edf5ea;border:1px solid rgba(46,125,50,.12);font-size:.72rem;font-weight:800}.pipeline-arrow{color:var(--amber);font-weight:900}.research-evidence{padding:13px;border-radius:16px;background:#f7f8f5;border:1px dashed var(--line)}
 @media(max-width:1050px){.research-path-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:700px){.research-path-grid{grid-template-columns:1fr}.rubric-table{font-size:.7rem}.rubric-table th,.rubric-table td{padding:7px}.rubric-score-grid{grid-template-columns:1fr}}
+
+
+/* v1.0.5 structured lecturer assessment */
+.lecturer-assessment-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(380px,.95fr);gap:14px;align-items:start}
+.assessment-evidence-panel{position:sticky;top:96px;max-height:calc(100vh - 118px);overflow:auto}
+.assessment-full-evidence{margin:12px 0 14px;padding:12px;border-radius:14px;background:#fbfcfa;border:1px solid var(--line)}
+.lecturer-rubric{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+.rubric-score-card{border:1px solid var(--line);border-radius:16px;padding:12px;background:#fff}
+.rubric-score-head{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,230px);gap:12px;align-items:start}
+.rubric-score-head strong,.rubric-score-head small{display:block}.rubric-score-head small{color:var(--muted);margin-top:4px}
+.rubric-score-head select{width:100%;border:1px solid var(--line);border-radius:12px;padding:9px;background:#fff}
+.criterion-evidence{margin-top:10px;padding:10px 11px;border-radius:12px;background:#f7f8f5;border-left:3px solid var(--teal);font-size:.75rem}
+.criterion-evidence.empty{color:var(--muted);font-style:italic;border-left-color:var(--line)}
+.criterion-evidence-title{display:block;margin-bottom:7px;color:var(--teal)}
+.criterion-evidence-field+.criterion-evidence-field,.criterion-evidence-array{margin-top:8px}
+.criterion-evidence-field>span,.criterion-evidence-array>span{display:block;color:var(--muted);font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.criterion-evidence-field p,.criterion-evidence-array p{margin:3px 0 0;white-space:pre-wrap;line-height:1.48}
+.criterion-evidence-array p{padding:5px 0;border-bottom:1px dashed var(--line)}.criterion-evidence-array p:last-child{border-bottom:0}
+@media(max-width:1180px){.lecturer-assessment-grid{grid-template-columns:1fr}.assessment-evidence-panel{position:static;max-height:none}}
+@media(max-width:700px){.rubric-score-head{grid-template-columns:1fr}}
