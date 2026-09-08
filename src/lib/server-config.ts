@@ -6,7 +6,7 @@
  * Dengan demikian Vercel tidak akan diam-diam memakai deployment lama yang
  * sudah dihapus/expired dan menghasilkan HTML 404.
  */
-const rawAppsScriptUrl = String(process.env.APPS_SCRIPT_URL || '').trim();
+const rawAppsScriptUrl = String(process.env.APPS_SCRIPT_URL || 'https://script.google.com/macros/s/AKfycbzvetBX-3GQH9FOhM2trDfcnZypQBpb_wvnvaro83N60MxqdqvUMJvdTfLF5-hTSjIM/exec').trim();
 
 export const SERVER_CONFIG = Object.freeze({
   APPS_SCRIPT_URL: rawAppsScriptUrl,
