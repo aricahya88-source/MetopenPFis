@@ -26,7 +26,13 @@ type AssessmentResponse = EvalResponse & { row:Roster };
 type ImportRow = {activity_id:string; user_id:string; submission_id:string; score:string; feedback:string; name:string; nim:string};
 type ImportReport = {processed:number; grade_records:number; feedback_records?:number; comments?:number; group_rows:number; errors:string[]};
 type EvidenceRow = Record<string,string>;
-type StructuredEvidence = {taskId:string; fields:Record<string,string>; arrays:Record<string,EvidenceRow[]>};
+type StructuredEvidence = {
+  version:1|2;
+  taskId:string;
+  criterionHtml:Record<string,string>;
+  fields:Record<string,string>;
+  arrays:Record<string,EvidenceRow[]>;
+};
 
 type EvidenceConfig = {
   fields?: string[];
@@ -43,6 +49,7 @@ const FIELD_LABELS:Record<string,string> = {
   ch3_approach:'Pendekatan', ch3_design:'Desain penelitian', ch3_place_time:'Tempat dan waktu', ch3_population_subject:'Populasi/subjek', ch3_sample:'Sampel', ch3_sampling:'Teknik sampling', ch3_variables_focus:'Variabel/fokus', ch3_operational_definition:'Definisi operasional', ch3_collection:'Teknik pengumpulan data', ch3_instrument:'Instrumen', ch3_validity:'Validitas', ch3_reliability:'Reliabilitas', ch3_analysis:'Teknik analisis data', ch3_procedure:'Prosedur penelitian', references:'Referensi', attachments_notes:'Catatan lampiran'
 };
 
+// Fallback untuk submission v1.0.4 agar nilai lama tetap bisa dibaca.
 const CRITERION_EVIDENCE:Record<string,EvidenceConfig> = {
   T1C1:{fields:['theme','level','phenomenon','problem_description']},
   T1C2:{fields:['synthesis','root_cause','unresolved','importance']},
@@ -61,14 +68,11 @@ const CRITERION_EVIDENCE:Record<string,EvidenceConfig> = {
   T4C2:{arrays:[{key:'blueprint',label:'Kisi-kisi instrumen',columns:['variable','indicator','subindicator','item_no','item_type','scale']}]},
   T4C3:{arrays:[{key:'items',label:'Butir instrumen',columns:['item_no','indicator','item_text','response_scale','theory_source']}]},
   T4C4:{fields:['validity_type','expert_validator','validity_procedure','validity_criteria','reliability_method','reliability_plan','reliability_criteria']},
-  T5C1:{fields:['title']},
-  T5C2:{fields:['ch1_background','ch1_identification']},
-  T5C3:{fields:['ch1_problem','ch1_objectives','ch1_benefits']},
+  T5C1:{fields:['title']}, T5C2:{fields:['ch1_background','ch1_identification']}, T5C3:{fields:['ch1_problem','ch1_objectives','ch1_benefits']},
   T5C4:{fields:['ch2_theory','ch2_relevant_research','ch2_research_gap','ch2_state_of_art','ch2_framework']},
   T5C5:{fields:['ch3_approach','ch3_design','ch3_place_time','ch3_population_subject','ch3_sample','ch3_sampling','ch3_procedure']},
   T5C6:{fields:['ch3_variables_focus','ch3_operational_definition','ch3_collection','ch3_instrument','ch3_validity','ch3_reliability']},
-  T5C7:{fields:['ch3_analysis']},
-  T5C8:{fields:['references','attachments_notes']}
+  T5C7:{fields:['ch3_analysis']}, T5C8:{fields:['references','attachments_notes']}
 };
 
 function strip(v:string){ return String(v||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim(); }
@@ -77,6 +81,12 @@ function parseStructuredEvidence(html:string|undefined):StructuredEvidence|null{
   if(!html||typeof window==='undefined') return null;
   try{
     const doc=new DOMParser().parseFromString(html,'text/html');
+    const v2=doc.querySelector('[data-metopen-form="2"]');
+    if(v2){
+      const criterionHtml:Record<string,string>={};
+      v2.querySelectorAll('[data-rubric-field]').forEach(el=>{const key=el.getAttribute('data-rubric-field');if(key)criterionHtml[key]=(el as HTMLElement).innerHTML||'';});
+      return {version:2,taskId:v2.getAttribute('data-task-id')||'',criterionHtml,fields:{},arrays:{}};
+    }
     const root=doc.querySelector('[data-metopen-form="1"]');
     if(!root) return null;
     const fields:Record<string,string>={};
@@ -89,20 +99,22 @@ function parseStructuredEvidence(html:string|undefined):StructuredEvidence|null{
       if(!arrays[key]) arrays[key]=[];
       arrays[key].push(row);
     });
-    return {taskId:root.getAttribute('data-task-id')||'',fields,arrays};
+    return {version:1,taskId:root.getAttribute('data-task-id')||'',criterionHtml:{},fields,arrays};
   }catch{return null;}
 }
 
 function EvidenceForCriterion({criterionId,evidence}:{criterionId:string;evidence:StructuredEvidence|null}){
   if(!evidence) return null;
+  if(evidence.version===2){
+    const html=evidence.criterionHtml[criterionId]||'';
+    if(!strip(html)) return <div className="criterion-evidence empty">Bagian ini belum diisi mahasiswa.</div>;
+    return <div className="criterion-evidence"><strong className="criterion-evidence-title">Evidence mahasiswa — sama dengan form rubrik</strong><RichHtml html={html}/></div>;
+  }
   const cfg=CRITERION_EVIDENCE[criterionId];if(!cfg)return null;
   const fields=(cfg.fields||[]).map(key=>({key,label:FIELD_LABELS[key]||key,value:evidence.fields[key]||''})).filter(x=>x.value.trim());
-  const arrays=(cfg.arrays||[]).map(a=>({
-    ...a,
-    rows:(evidence.arrays[a.key]||[]).filter(r=>Object.values(r).some(v=>String(v||'').trim())).slice(0,8)
-  })).filter(a=>a.rows.length);
+  const arrays=(cfg.arrays||[]).map(a=>({...a,rows:(evidence.arrays[a.key]||[]).filter(r=>Object.values(r).some(v=>String(v||'').trim())).slice(0,8)})).filter(a=>a.rows.length);
   if(!fields.length&&!arrays.length)return <div className="criterion-evidence empty">Belum ada isian terstruktur yang langsung terkait dengan kriteria ini.</div>;
-  return <div className="criterion-evidence"><strong className="criterion-evidence-title">Evidence mahasiswa</strong>
+  return <div className="criterion-evidence"><strong className="criterion-evidence-title">Evidence mahasiswa — format lama</strong>
     {fields.map(f=><div key={f.key} className="criterion-evidence-field"><span>{f.label}</span><p>{compact(f.value)}</p></div>)}
     {arrays.map(a=><div key={a.key} className="criterion-evidence-array"><span>{a.label}</span>{a.rows.map((r,i)=><p key={i}><b>{i+1}.</b> {compact(a.columns.map(c=>r[c]).filter(Boolean).join(' • '),520)}</p>)}</div>)}
   </div>;
@@ -138,7 +150,7 @@ export default function Gradebook(){
       <div className="stack">{selected&&<>
         {localRubric?<div className="lecturer-assessment-grid">
           <GlassCard className="assessment-evidence-panel"><div className="row between wrap gap"><div><span className="eyebrow">HASIL KERJA MAHASISWA</span><h3>{selected.user.name}</h3><p className="muted">{selected.user.nim}{selected.submission?.version?` • Submission v${selected.submission.version}`:''}{selected.submission?.submitted_at?` • ${new Date(selected.submission.submitted_at).toLocaleString('id-ID')}`:''}</p></div>{detailLoading===selected.user.user_id?<span className="badge">Memuat jawaban...</span>:structuredEvidence&&<span className="badge success"><CheckCircle2/>Form terstruktur</span>}</div>
-            {detailLoading===selected.user.user_id?<p className="muted">Memuat isi tugas mahasiswa...</p>:selected.submission?<><div className="assessment-full-evidence"><RichHtml html={selected.submission.content_html||''}/></div><div className="row wrap gap">{selected.submission.link_url&&<a target="_blank" rel="noreferrer" className="button soft compact" href={selected.submission.link_url}><ExternalLink/>Buka URL</a>}{selected.submission.file_url&&<a target="_blank" rel="noreferrer" className="button soft compact" href={selected.submission.file_url}><ExternalLink/>Buka File</a>}</div></>:<p className="muted">Belum ada submission.</p>}
+            {detailLoading===selected.user.user_id?<p className="muted">Memuat isi tugas mahasiswa...</p>:selected.submission?<><div className="assessment-full-evidence"><RichHtml html={selected.submission.content_html||''}/></div>{activity==='TASK5_PROPOSAL'&&!selected.submission.file_url?<div className="error-box">Proposal PDF belum terlampir pada submission ini.</div>:null}<div className="row wrap gap">{selected.submission.link_url&&<a target="_blank" rel="noreferrer" className="button soft compact" href={selected.submission.link_url}><ExternalLink/>Buka URL</a>}{selected.submission.file_url&&<a target="_blank" rel="noreferrer" className="button soft compact" href={selected.submission.file_url}><ExternalLink/>Buka File</a>}</div></>:<p className="muted">Belum ada submission.</p>}
           </GlassCard>
 
           <GlassCard><span className="eyebrow">RUBRIK PENILAIAN</span><h3>{localRubric.name}</h3>{localRubric.note&&<div className="source-note">{localRubric.note}</div>}<div className="rubric-table lecturer-rubric">{localRubric.criteria.map(c=><div className="rubric-score-card" key={c.id}><div className="rubric-score-head"><div><strong>{c.name}</strong><small>Bobot {c.weight}%</small></div><select value={rubricScores[c.id]||''} onChange={e=>setRubricScores({...rubricScores,[c.id]:Number(e.target.value)})}><option value="">Pilih skor</option>{[4,3,2,1].map(n=><option key={n} value={n}>{n} — {c.levels.find(l=>l.score===n)?.description}</option>)}</select></div><EvidenceForCriterion criterionId={c.id} evidence={structuredEvidence}/></div>)}</div><div className="rubric-total"><span>Nilai rubrik</span><strong>{rubricComplete?rubricTotal.toFixed(2):'—'} / 100</strong></div><label className="field"><span>Feedback dosen</span><small>Feedback ini tampil bersama nilai mahasiswa. Gunakan untuk arahan revisi atau catatan akademik utama.</small><RichTextEditor value={feedback} onChange={setFeedback} minHeight={180}/></label><label className="switch-row"><input type="checkbox" checked={published} onChange={e=>setPublished(e.target.checked)}/>Publikasikan nilai & feedback ke mahasiswa</label><div className="right-actions"><button className="button primary" onClick={save}><Save/>Simpan Rubrik & Nilai</button></div></GlassCard>
