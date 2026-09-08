@@ -2,17 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useParams } from 'next/navigation';
 import AppShell from '@/components/AppShell';
 import AuthGate from '@/components/AuthGate';
 import GlassCard from '@/components/GlassCard';
 import RichHtml from '@/components/RichHtml';
-import RichTextEditor from '@/components/RichTextEditor';
 import { api, fileToBase64, getStoredUser } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 import { rubricFor, type RubricCriterion } from '@/lib/taskRubrics';
 import { FORMAL_TASKS } from '@/lib/courseConfig';
-import { ArrowLeft, Upload, ExternalLink, ClipboardCheck, Scale, RefreshCw, Download, FileText, CheckCircle2, Save, CloudOff, Clock3 } from 'lucide-react';
+import { ArrowLeft, Upload, ExternalLink, ClipboardCheck, Scale, RefreshCw, Download, FileText, CheckCircle2, Save, CloudOff, Clock3, Pencil, Check } from 'lucide-react';
+
+
+const RichTextEditor=dynamic(()=>import('@/components/RichTextEditor'),{
+  ssr:false,
+  loading:()=> <div className="editor-loading">Menyiapkan editor...</div>
+});
 
 type TaskActivity={activity_id?:string;type?:string;title?:string;description_html?:string;max_score?:number;due_at?:string};
 type TaskSubmission={submission_id?:string;version?:number;content_html?:string;link_url?:string;file_url?:string;file_name?:string;submitted_at?:string};
@@ -185,14 +191,23 @@ function draftTime_(iso:string){
   try{return new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',timeStyle:'short'}).format(new Date(iso));}catch{return iso;}
 }
 
-function RubricFormCard({criterion,value,onChange,taskId}:{criterion:RubricCriterion;value:string;onChange:(v:string)=>void;taskId:string}){
+function RubricFormCard({criterion,value,onChange,taskId,active,onActivate,onFinish}:{criterion:RubricCriterion;value:string;onChange:(v:string)=>void;taskId:string;active:boolean;onActivate:()=>void;onFinish:()=>void}){
   const guides=TASK_GUIDANCE[taskId]?.[criterion.id]||[];
   const top=criterion.levels.find(l=>l.score===4)?.description||'';
+  const filled=stripHtml(value).length>=8;
   return <GlassCard>
-    <div className="row between wrap gap"><div><span className="eyebrow">ASPEK PENILAIAN • {criterion.weight}%</span><h3>{criterion.name}</h3></div><span className="badge">Skor maks. 4</span></div>
+    <div className="row between wrap gap"><div><span className="eyebrow">ASPEK PENILAIAN • {criterion.weight}%</span><h3>{criterion.name}</h3></div><div className="row wrap gap"><span className={filled?'badge success':'badge'}>{filled?<><Check/>Terisi</>:<>Belum lengkap</>}</span><span className="badge">Skor maks. 4</span></div></div>
     <div className="source-note"><strong>Target skor 4:</strong> {top}</div>
     <div style={{margin:'12px 0'}}><strong>Isi minimal:</strong><ul style={{margin:'6px 0 0',paddingLeft:20}}>{guides.map(x=><li key={x}>{x}</li>)}</ul></div>
-    <RichTextEditor value={value} onChange={onChange} minHeight={criterion.id==='T1C4'||criterion.id==='T4C2'||criterion.id==='T4C3'?260:170} placeholder="Susun jawaban secara akademik, sistematis, dan sertakan bukti/referensi bila relevan."/>
+    {active?<>
+      <RichTextEditor value={value} onChange={onChange} minHeight={criterion.id==='T1C4'||criterion.id==='T4C2'||criterion.id==='T4C3'?260:170} placeholder="Susun jawaban secara akademik, sistematis, dan sertakan bukti/referensi bila relevan."/>
+      <div className="right-actions" style={{marginTop:10}}><button type="button" className="button soft compact" onClick={onFinish}><Check/>Selesai Edit</button></div>
+    </>:<>
+      <div className="research-evidence" style={{marginTop:12}}>
+        {filled?<RichHtml html={value}/>:<p className="muted">Belum ada jawaban pada aspek ini.</p>}
+      </div>
+      <div className="right-actions" style={{marginTop:10}}><button type="button" className="button soft compact" onClick={onActivate}><Pencil/>{filled?'Edit Jawaban':'Mulai Mengisi'}</button></div>
+    </>}
   </GlassCard>;
 }
 
@@ -201,7 +216,7 @@ export default function TaskPage(){
   const id=useMemo(()=>Array.isArray(params?.id)?String(params.id[0]||''):String(params?.id||''),[params]);
   const rubric=useMemo(()=>id?rubricFor(id):undefined,[id]);
   const fallbackActivity=useMemo(()=>fallbackActivity_(id),[id]);
-  const[data,setData]=useState<TaskData|null>(null),[form,setForm]=useState<FormState>({}),[loading,setLoading]=useState(false),[error,setError]=useState(''),[backendWarning,setBackendWarning]=useState(''),[busy,setBusy]=useState(false),[pulling,setPulling]=useState(false),[link,setLink]=useState(''),[file,setFile]=useState<File|null>(null),[draftReady,setDraftReady]=useState(false),[draftSavedAt,setDraftSavedAt]=useState(''),[dirty,setDirty]=useState(false);
+  const[data,setData]=useState<TaskData|null>(null),[form,setForm]=useState<FormState>({}),[loading,setLoading]=useState(false),[error,setError]=useState(''),[backendWarning,setBackendWarning]=useState(''),[busy,setBusy]=useState(false),[pulling,setPulling]=useState(false),[link,setLink]=useState(''),[file,setFile]=useState<File|null>(null),[draftReady,setDraftReady]=useState(false),[draftSavedAt,setDraftSavedAt]=useState(''),[dirty,setDirty]=useState(false),[activeCriterion,setActiveCriterion]=useState('');
   const hasLocalDraftRef=useRef(false);
 
   const load=useCallback(async(preserveLocalDraft=true)=>{
@@ -229,7 +244,7 @@ export default function TaskPage(){
     setForm(local?.form||emptyForm(id));
     setLink(local?.link||'');
     setDraftSavedAt(local?.savedAt||'');
-    setFile(null);setError('');setBackendWarning('');setDirty(false);setDraftReady(true);
+    setFile(null);setError('');setBackendWarning('');setDirty(false);setActiveCriterion('');setDraftReady(true);
     void load(true);
   },[id,load]);
 
@@ -256,10 +271,13 @@ export default function TaskPage(){
     const idx=TASK_IDS.indexOf(id as typeof TASK_IDS[number]);if(idx<=0)return;
     setPulling(true);setError('');
     try{
-      const ids=TASK_IDS.slice(0,idx);const prior=await Promise.all(ids.map(async pid=>{try{const d=await api<TaskData>('getTask',{activity_id:pid});return {pid,form:parseForm(d?.latest?.content_html,pid)};}catch{return {pid,form:null};}}));
-      const snippets=prior.filter(x=>x.form).map(x=>({pid:x.pid,html:Object.entries(x.form||{}).filter(([,v])=>stripHtml(v).length).map(([k,v])=>`<h4>${k}</h4>${v}`).join('')}));
-      if(!snippets.length)throw new Error('Belum ada tugas sebelumnya yang dapat ditarik dari server.');
-      setForm(prev=>{const next={...prev};const first=rubric?.criteria[0]?.id;if(first&&!stripHtml(next[first]||''))next[first]=`<p><strong>Ringkasan data dari tugas sebelumnya</strong></p>${snippets.map(s=>s.html).join('')}`;return next;});
+      const pid=TASK_IDS[idx-1];
+      const d=await api<TaskData>('getTask',{activity_id:pid});
+      const priorForm=parseForm(d?.latest?.content_html,pid);
+      if(!priorForm)throw new Error('Belum ada tugas sebelumnya yang dapat ditarik dari server.');
+      const html=Object.entries(priorForm).filter(([,v])=>stripHtml(v).length).map(([k,v])=>`<h4>${k}</h4>${v}`).join('');
+      if(!stripHtml(html))throw new Error('Tugas sebelumnya belum memiliki isi yang dapat ditarik.');
+      setForm(prev=>{const next={...prev};const first=rubric?.criteria[0]?.id;if(first&&!stripHtml(next[first]||''))next[first]=`<p><strong>Ringkasan dari tugas sebelumnya</strong></p>${html}`;return next;});
       setDirty(true);
     }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setPulling(false);}
   };
@@ -294,11 +312,11 @@ export default function TaskPage(){
     {error&&<div className="error-box">{error}</div>}
     <div className="stack">
       <GlassCard><div className="row gap"><div className="icon-bubble teal"><ClipboardCheck/></div><div className="grow"><span className="eyebrow">{String(activity.type||'assignment').toUpperCase()}</span><h2>{activity.title||id}</h2></div></div><RichHtml html={activity.description_html||'<p>Instruksi belum diisi.</p>'}/><div className="row wrap gap"><span className="badge"><CheckCircle2/>Form 1:1 dengan rubrik</span><span className="badge">Total bobot 100%</span>{activity.due_at&&<span className="badge">{formatDate(activity.due_at)}</span>}</div></GlassCard>
-      {rubric&&<GlassCard><div className="row gap"><div className="icon-bubble amber"><Scale/></div><div><span className="eyebrow">RUBRIK RESMI</span><h3>{rubric.name}</h3></div></div>{rubric.note&&<p className="source-note">{rubric.note}</p>}<p className="muted">Setiap aspek rubrik di bawah memiliki satu form WYSIWYG yang sama persis urutannya dengan form penilaian dosen.</p></GlassCard>}
+      {rubric&&<GlassCard><div className="row gap"><div className="icon-bubble amber"><Scale/></div><div><span className="eyebrow">RUBRIK RESMI</span><h3>{rubric.name}</h3></div></div>{rubric.note&&<p className="source-note">{rubric.note}</p>}<p className="muted">Setiap aspek rubrik memiliki form WYSIWYG yang sama dengan LMS Multimedia. Untuk menjaga aplikasi tetap ringan, hanya <strong>satu editor</strong> yang dibuka pada satu waktu.</p></GlassCard>}
       {grade&&<GlassCard className="grade-highlight"><span className="eyebrow">NILAI TERBIT</span><h2>{Number(grade.score||0)} / {Number(grade.max_score||100)}</h2><RichHtml html={grade.feedback_html||'<p>Belum ada feedback tertulis.</p>'}/></GlassCard>}
       {latest&&<GlassCard><span className="eyebrow">SUBMISSION TERAKHIR • VERSI {Number(latest.version||1)}</span><RichHtml html={latest.content_html||''}/><div className="row wrap gap">{latest.link_url&&<a className="button soft compact" target="_blank" rel="noreferrer" href={latest.link_url}><ExternalLink/>Buka tautan</a>}{latest.file_url&&<a className="button soft compact" target="_blank" rel="noreferrer" href={latest.file_url}><ExternalLink/>{latest.file_name||'Buka file'}</a>}</div>{latest.submitted_at&&<small>{formatDate(latest.submitted_at)}</small>}</GlassCard>}
-      <div className="section-title"><div><span className="eyebrow">FORM WYSIWYG BERBASIS RUBRIK</span><h2>{latest?'Perbaiki & Kirim Revisi':'Lengkapi Tugas'}</h2><p className="muted">Perubahan otomatis dicadangkan sebagai draft lokal sekitar 1,5 detik setelah Anda berhenti mengetik. Gunakan tombol <b>Simpan Draft</b> untuk menyimpan langsung.</p></div></div>
-      {rubric?.criteria.map(c=><RubricFormCard key={c.id} criterion={c} taskId={id} value={form[c.id]||''} onChange={v=>updateField(c.id,v)}/>)}
+      <div className="section-title"><div><span className="eyebrow">FORM WYSIWYG BERBASIS RUBRIK</span><h2>{latest?'Perbaiki & Kirim Revisi':'Lengkapi Tugas'}</h2><p className="muted">Klik <b>Mulai Mengisi/Edit Jawaban</b> pada satu aspek. Editor WYSIWYG hanya dimuat saat diperlukan sehingga halaman lebih ringan. Perubahan otomatis dicadangkan sebagai draft lokal.</p></div></div>
+      {rubric?.criteria.map(c=><RubricFormCard key={c.id} criterion={c} taskId={id} value={form[c.id]||''} onChange={v=>updateField(c.id,v)} active={activeCriterion===c.id} onActivate={()=>setActiveCriterion(c.id)} onFinish={()=>setActiveCriterion('')}/>)}
       <GlassCard><span className="eyebrow">PENGUMPULAN</span><h3>{id==='TASK5_PROPOSAL'?'Upload Proposal PDF':'Lampiran Pendukung'}</h3>{id==='TASK5_PROPOSAL'?<><div className="notice"><FileText/> <strong>Tugas 5 wajib dikumpulkan sebagai PDF.</strong> Form WYSIWYG di atas berfungsi sebagai ringkasan evidence per aspek rubrik; naskah proposal BAB I–BAB III yang dinilai secara penuh berasal dari PDF.</div><label className="field"><span>File proposal PDF — wajib, maks. 5 MB</span><input type="file" accept="application/pdf,.pdf" onChange={e=>setFile(e.target.files?.[0]||null)}/></label><small className="muted">File tidak disimpan di draft browser. Pilih kembali PDF ketika akan mengirim tugas.</small></>:<div className="form-grid two"><label className="field"><span>URL dokumen / Google Drive (opsional)</span><input value={link} onChange={e=>{setLink(e.target.value);setDirty(true);}} placeholder="https://..."/></label><label className="field"><span>File pendukung (opsional, maks. 5 MB)</span><input type="file" onChange={e=>setFile(e.target.files?.[0]||null)}/></label></div>}<div className="right-actions"><button type="button" className="button soft" onClick={()=>saveDraft(false)}><Save/>Simpan Draft</button><button className="button primary" disabled={busy} onClick={()=>void submit()}><Upload/>{busy?'Mengirim...':latest?'Kirim Revisi':'Kirim Tugas'}</button></div></GlassCard>
     </div>
   </AppShell></AuthGate>;
