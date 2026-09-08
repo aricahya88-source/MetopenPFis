@@ -1,23 +1,25 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import AppShell from '@/components/AppShell';
 import AuthGate from '@/components/AuthGate';
 import GlassCard from '@/components/GlassCard';
 import RichHtml from '@/components/RichHtml';
-import LightRichTextEditor from '@/components/LightRichTextEditor';
-import { api, fileToBase64 } from '@/lib/api';
+import RichTextEditor from '@/components/RichTextEditor';
+import { api, fileToBase64, getStoredUser } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 import { rubricFor, type RubricCriterion } from '@/lib/taskRubrics';
-import { ArrowLeft, Upload, ExternalLink, ClipboardCheck, Scale, RefreshCw, Download, FileText, CheckCircle2 } from 'lucide-react';
+import { FORMAL_TASKS } from '@/lib/courseConfig';
+import { ArrowLeft, Upload, ExternalLink, ClipboardCheck, Scale, RefreshCw, Download, FileText, CheckCircle2, Save, CloudOff, Clock3 } from 'lucide-react';
 
 type TaskActivity={activity_id?:string;type?:string;title?:string;description_html?:string;max_score?:number;due_at?:string};
 type TaskSubmission={submission_id?:string;version?:number;content_html?:string;link_url?:string;file_url?:string;file_name?:string;submitted_at?:string};
 type TaskGrade={score?:number;max_score?:number;feedback_html?:string};
 type TaskData={activity?:TaskActivity|null;latest?:TaskSubmission|null;grade?:TaskGrade|null};
 type FormState=Record<string,string>;
+type LocalDraft={taskId:string;form:FormState;link:string;savedAt:string};
 
 const TASK_IDS=['TASK1_ISSUE','TASK2_GAP','TASK3_DESIGN','TASK4_INSTRUMENT','TASK5_PROPOSAL'] as const;
 
@@ -151,6 +153,38 @@ function validate(taskId:string,form:FormState,file:File|null){
   return '';
 }
 
+function draftKey_(taskId:string){
+  const user=getStoredUser<{user_id?:string;nim?:string;email?:string}>();
+  const owner=String(user?.user_id||user?.nim||user?.email||'guest').replace(/[^a-zA-Z0-9_.@-]/g,'_');
+  return `metopen_task_draft_v3:${owner}:${taskId}`;
+}
+function readDraft_(taskId:string):LocalDraft|null{
+  if(typeof window==='undefined')return null;
+  try{
+    const raw=localStorage.getItem(draftKey_(taskId));if(!raw)return null;
+    const parsed=JSON.parse(raw) as LocalDraft;
+    if(parsed?.taskId!==taskId||!parsed?.form)return null;
+    return parsed;
+  }catch{return null;}
+}
+function writeDraft_(taskId:string,form:FormState,link:string){
+  if(typeof window==='undefined')return '';
+  const savedAt=new Date().toISOString();
+  const draft:LocalDraft={taskId,form,link,savedAt};
+  localStorage.setItem(draftKey_(taskId),JSON.stringify(draft));
+  return savedAt;
+}
+function clearDraft_(taskId:string){if(typeof window!=='undefined')localStorage.removeItem(draftKey_(taskId));}
+function fallbackActivity_(taskId:string):TaskActivity{
+  const task=FORMAL_TASKS.find(t=>t.code===taskId);
+  if(task)return {activity_id:task.code,type:'assignment',title:task.title,description_html:`<p>${task.short}</p>`,max_score:100};
+  return {activity_id:taskId,type:'assignment',title:taskId||'Tugas',description_html:'<p>Instruksi detail akan dimuat dari backend Apps Script.</p>',max_score:100};
+}
+function draftTime_(iso:string){
+  if(!iso)return '';
+  try{return new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',timeStyle:'short'}).format(new Date(iso));}catch{return iso;}
+}
+
 function RubricFormCard({criterion,value,onChange,taskId}:{criterion:RubricCriterion;value:string;onChange:(v:string)=>void;taskId:string}){
   const guides=TASK_GUIDANCE[taskId]?.[criterion.id]||[];
   const top=criterion.levels.find(l=>l.score===4)?.description||'';
@@ -158,7 +192,7 @@ function RubricFormCard({criterion,value,onChange,taskId}:{criterion:RubricCrite
     <div className="row between wrap gap"><div><span className="eyebrow">ASPEK PENILAIAN • {criterion.weight}%</span><h3>{criterion.name}</h3></div><span className="badge">Skor maks. 4</span></div>
     <div className="source-note"><strong>Target skor 4:</strong> {top}</div>
     <div style={{margin:'12px 0'}}><strong>Isi minimal:</strong><ul style={{margin:'6px 0 0',paddingLeft:20}}>{guides.map(x=><li key={x}>{x}</li>)}</ul></div>
-    <LightRichTextEditor value={value} onChange={onChange} minHeight={criterion.id==='T1C4'||criterion.id==='T4C2'||criterion.id==='T4C3'?260:170} placeholder="Susun jawaban secara akademik, sistematis, dan sertakan bukti/referensi bila relevan."/>
+    <RichTextEditor value={value} onChange={onChange} minHeight={criterion.id==='T1C4'||criterion.id==='T4C2'||criterion.id==='T4C3'?260:170} placeholder="Susun jawaban secara akademik, sistematis, dan sertakan bukti/referensi bila relevan."/>
   </GlassCard>;
 }
 
@@ -166,13 +200,57 @@ export default function TaskPage(){
   const params=useParams<{id:string|string[]}>();
   const id=useMemo(()=>Array.isArray(params?.id)?String(params.id[0]||''):String(params?.id||''),[params]);
   const rubric=useMemo(()=>id?rubricFor(id):undefined,[id]);
-  const[data,setData]=useState<TaskData|null>(null),[form,setForm]=useState<FormState>({}),[loading,setLoading]=useState(true),[error,setError]=useState(''),[busy,setBusy]=useState(false),[pulling,setPulling]=useState(false),[link,setLink]=useState(''),[file,setFile]=useState<File|null>(null);
+  const fallbackActivity=useMemo(()=>fallbackActivity_(id),[id]);
+  const[data,setData]=useState<TaskData|null>(null),[form,setForm]=useState<FormState>({}),[loading,setLoading]=useState(false),[error,setError]=useState(''),[backendWarning,setBackendWarning]=useState(''),[busy,setBusy]=useState(false),[pulling,setPulling]=useState(false),[link,setLink]=useState(''),[file,setFile]=useState<File|null>(null),[draftReady,setDraftReady]=useState(false),[draftSavedAt,setDraftSavedAt]=useState(''),[dirty,setDirty]=useState(false);
+  const hasLocalDraftRef=useRef(false);
 
-  const load=useCallback(async()=>{
-    if(!id)return;setLoading(true);setError('');
-    try{const result=await api<TaskData>('getTask',{activity_id:id});if(!result?.activity)throw new Error('Data tugas tidak lengkap.');setData(result);setForm(parseForm(result.latest?.content_html,id)||emptyForm(id));setLink(result.latest?.link_url||'');setFile(null);}catch(e){setError(e instanceof Error?e.message:String(e));setData(null);}finally{setLoading(false);}
+  const load=useCallback(async(preserveLocalDraft=true)=>{
+    if(!id)return;
+    setLoading(true);setBackendWarning('');
+    try{
+      const result=await api<TaskData>('getTask',{activity_id:id});
+      if(!result?.activity)throw new Error('Data tugas dari Apps Script tidak lengkap.');
+      setData(result);
+      if(!(preserveLocalDraft&&hasLocalDraftRef.current)){
+        setForm(parseForm(result.latest?.content_html,id)||emptyForm(id));
+        setLink(result.latest?.link_url||'');
+      }
+    }catch(e){
+      const msg=e instanceof Error?e.message:String(e);
+      setBackendWarning(msg);
+      setData(null);
+    }finally{setLoading(false);}
   },[id]);
-  useEffect(()=>{void load();},[load]);
+
+  useEffect(()=>{
+    if(!id)return;
+    const local=readDraft_(id);
+    hasLocalDraftRef.current=!!local;
+    setForm(local?.form||emptyForm(id));
+    setLink(local?.link||'');
+    setDraftSavedAt(local?.savedAt||'');
+    setFile(null);setError('');setBackendWarning('');setDirty(false);setDraftReady(true);
+    void load(true);
+  },[id,load]);
+
+  const saveDraft=useCallback((silent=false)=>{
+    if(!id||!draftReady)return;
+    try{
+      const saved=writeDraft_(id,form,link);
+      hasLocalDraftRef.current=true;setDraftSavedAt(saved);setDirty(false);
+      if(!silent)setError('');
+    }catch{
+      if(!silent)setError('Draft tidak dapat disimpan di browser. Coba kurangi isi/gambar atau kosongkan penyimpanan browser.');
+    }
+  },[id,draftReady,form,link]);
+
+  useEffect(()=>{
+    if(!draftReady||!dirty)return;
+    const timer=window.setTimeout(()=>saveDraft(true),1500);
+    return()=>window.clearTimeout(timer);
+  },[draftReady,dirty,form,link,saveDraft]);
+
+  const updateField=(key:string,value:string)=>{setForm(prev=>({...prev,[key]:value}));setDirty(true);};
 
   const pullPrior=async()=>{
     const idx=TASK_IDS.indexOf(id as typeof TASK_IDS[number]);if(idx<=0)return;
@@ -180,8 +258,9 @@ export default function TaskPage(){
     try{
       const ids=TASK_IDS.slice(0,idx);const prior=await Promise.all(ids.map(async pid=>{try{const d=await api<TaskData>('getTask',{activity_id:pid});return {pid,form:parseForm(d?.latest?.content_html,pid)};}catch{return {pid,form:null};}}));
       const snippets=prior.filter(x=>x.form).map(x=>({pid:x.pid,html:Object.entries(x.form||{}).filter(([,v])=>stripHtml(v).length).map(([k,v])=>`<h4>${k}</h4>${v}`).join('')}));
-      if(!snippets.length)throw new Error('Belum ada tugas sebelumnya yang dapat ditarik.');
+      if(!snippets.length)throw new Error('Belum ada tugas sebelumnya yang dapat ditarik dari server.');
       setForm(prev=>{const next={...prev};const first=rubric?.criteria[0]?.id;if(first&&!stripHtml(next[first]||''))next[first]=`<p><strong>Ringkasan data dari tugas sebelumnya</strong></p>${snippets.map(s=>s.html).join('')}`;return next;});
+      setDirty(true);
     }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setPulling(false);}
   };
 
@@ -192,22 +271,35 @@ export default function TaskPage(){
       const content_html=buildSubmissionHtml(id,form);if(content_html.length>48000)throw new Error('Ringkasan form terlalu panjang. Ringkas isian; untuk Tugas 5, naskah lengkap tetap berada pada PDF.');
       let file_base64='',file_name='',file_mime='';
       if(file){if(file.size>5*1024*1024)throw new Error('Ukuran file maksimal 5 MB.');file_base64=await fileToBase64(file);file_name=file.name;file_mime=file.type||'application/octet-stream';}
-      await api('submitWork',{activity_id:id,content_html,link_url:id==='TASK5_PROPOSAL'?'':link.trim(),file_base64,file_name,file_mime});await load();
-    }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}
+      await api('submitWork',{activity_id:id,content_html,link_url:id==='TASK5_PROPOSAL'?'':link.trim(),file_base64,file_name,file_mime});
+      clearDraft_(id);hasLocalDraftRef.current=false;setDraftSavedAt('');setDirty(false);setFile(null);
+      await load(false);
+    }catch(e){
+      setError(e instanceof Error?e.message:String(e));
+      try{saveDraft(true);}catch{}
+    }finally{setBusy(false);}
   };
 
-  const activity=data?.activity,latest=data?.latest,grade=data?.grade;
+  const activity=data?.activity||fallbackActivity,latest=data?.latest,grade=data?.grade;
   return <AuthGate><AppShell title="Tugas Penelitian">
-    <div className="row wrap gap" style={{marginBottom:14}}><Link href="/tasks" className="button soft compact"><ArrowLeft/>Kembali</Link><button type="button" className="button soft compact" onClick={()=>void load()} disabled={loading}><RefreshCw/>Muat ulang</button>{id!=='TASK1_ISSUE'&&<button type="button" className="button soft compact" onClick={()=>void pullPrior()} disabled={pulling}><Download/>{pulling?'Menarik...':'Tarik ringkasan tugas sebelumnya'}</button>}</div>
+    <div className="row wrap gap" style={{marginBottom:14}}>
+      <Link href="/tasks" className="button soft compact"><ArrowLeft/>Kembali</Link>
+      <button type="button" className="button soft compact" onClick={()=>void load(true)} disabled={loading}><RefreshCw/>{loading?'Menghubungkan...':'Muat data server'}</button>
+      <button type="button" className="button soft compact" onClick={()=>saveDraft(false)} disabled={!draftReady}><Save/>Simpan Draft</button>
+      {id!=='TASK1_ISSUE'&&<button type="button" className="button soft compact" onClick={()=>void pullPrior()} disabled={pulling}><Download/>{pulling?'Menarik...':'Tarik ringkasan tugas sebelumnya'}</button>}
+    </div>
+    {draftSavedAt&&<div className="notice"><Clock3/><span><strong>Draft tersimpan:</strong> {draftTime_(draftSavedAt)}. Draft disimpan di browser/perangkat ini dan <strong>belum dikirim ke dosen</strong>.</span></div>}
+    {loading&&<div className="notice"><RefreshCw/><span>Menghubungkan Apps Script di latar belakang. Form tetap dapat diisi dan disimpan sebagai draft.</span></div>}
+    {backendWarning&&<div className="error-box"><div className="row gap"><CloudOff/><div><strong>Backend belum dapat dibaca.</strong><div>{backendWarning}</div><small>Form tetap aktif. Simpan sebagai Draft terlebih dahulu. Jika pesan menyebut respons bukan JSON, cek deployment Apps Script: Web App, Execute as Me, akses sesuai kebutuhan, dan gunakan URL yang berakhir <b>/exec</b>.</small></div></div></div>}
     {error&&<div className="error-box">{error}</div>}
-    {loading?<div className="screen-center small"><div className="spinner"/>Memuat tugas...</div>:!activity?<GlassCard><h3>Tugas tidak dapat dimuat.</h3></GlassCard>:<div className="stack">
+    <div className="stack">
       <GlassCard><div className="row gap"><div className="icon-bubble teal"><ClipboardCheck/></div><div className="grow"><span className="eyebrow">{String(activity.type||'assignment').toUpperCase()}</span><h2>{activity.title||id}</h2></div></div><RichHtml html={activity.description_html||'<p>Instruksi belum diisi.</p>'}/><div className="row wrap gap"><span className="badge"><CheckCircle2/>Form 1:1 dengan rubrik</span><span className="badge">Total bobot 100%</span>{activity.due_at&&<span className="badge">{formatDate(activity.due_at)}</span>}</div></GlassCard>
       {rubric&&<GlassCard><div className="row gap"><div className="icon-bubble amber"><Scale/></div><div><span className="eyebrow">RUBRIK RESMI</span><h3>{rubric.name}</h3></div></div>{rubric.note&&<p className="source-note">{rubric.note}</p>}<p className="muted">Setiap aspek rubrik di bawah memiliki satu form WYSIWYG yang sama persis urutannya dengan form penilaian dosen.</p></GlassCard>}
       {grade&&<GlassCard className="grade-highlight"><span className="eyebrow">NILAI TERBIT</span><h2>{Number(grade.score||0)} / {Number(grade.max_score||100)}</h2><RichHtml html={grade.feedback_html||'<p>Belum ada feedback tertulis.</p>'}/></GlassCard>}
       {latest&&<GlassCard><span className="eyebrow">SUBMISSION TERAKHIR • VERSI {Number(latest.version||1)}</span><RichHtml html={latest.content_html||''}/><div className="row wrap gap">{latest.link_url&&<a className="button soft compact" target="_blank" rel="noreferrer" href={latest.link_url}><ExternalLink/>Buka tautan</a>}{latest.file_url&&<a className="button soft compact" target="_blank" rel="noreferrer" href={latest.file_url}><ExternalLink/>{latest.file_name||'Buka file'}</a>}</div>{latest.submitted_at&&<small>{formatDate(latest.submitted_at)}</small>}</GlassCard>}
-      <div className="section-title"><div><span className="eyebrow">FORM WYSIWYG BERBASIS RUBRIK</span><h2>{latest?'Perbaiki & Kirim Revisi':'Lengkapi Tugas'}</h2></div></div>
-      {rubric?.criteria.map(c=><RubricFormCard key={c.id} criterion={c} taskId={id} value={form[c.id]||''} onChange={v=>setForm(prev=>({...prev,[c.id]:v}))}/>)}
-      <GlassCard><span className="eyebrow">PENGUMPULAN</span><h3>{id==='TASK5_PROPOSAL'?'Upload Proposal PDF':'Lampiran Pendukung'}</h3>{id==='TASK5_PROPOSAL'?<><div className="notice"><FileText/> <strong>Tugas 5 wajib dikumpulkan sebagai PDF.</strong> Form WYSIWYG di atas berfungsi sebagai ringkasan evidence per aspek rubrik; naskah proposal BAB I–BAB III yang dinilai secara penuh berasal dari PDF.</div><label className="field"><span>File proposal PDF — wajib, maks. 5 MB</span><input type="file" accept="application/pdf,.pdf" onChange={e=>setFile(e.target.files?.[0]||null)}/></label></>:<div className="form-grid two"><label className="field"><span>URL dokumen / Google Drive (opsional)</span><input value={link} onChange={e=>setLink(e.target.value)} placeholder="https://..."/></label><label className="field"><span>File pendukung (opsional, maks. 5 MB)</span><input type="file" onChange={e=>setFile(e.target.files?.[0]||null)}/></label></div>}<div className="right-actions"><button className="button primary" disabled={busy} onClick={()=>void submit()}><Upload/>{busy?'Mengirim...':latest?'Kirim Revisi':'Kirim Tugas'}</button></div></GlassCard>
-    </div>}
+      <div className="section-title"><div><span className="eyebrow">FORM WYSIWYG BERBASIS RUBRIK</span><h2>{latest?'Perbaiki & Kirim Revisi':'Lengkapi Tugas'}</h2><p className="muted">Perubahan otomatis dicadangkan sebagai draft lokal sekitar 1,5 detik setelah Anda berhenti mengetik. Gunakan tombol <b>Simpan Draft</b> untuk menyimpan langsung.</p></div></div>
+      {rubric?.criteria.map(c=><RubricFormCard key={c.id} criterion={c} taskId={id} value={form[c.id]||''} onChange={v=>updateField(c.id,v)}/>)}
+      <GlassCard><span className="eyebrow">PENGUMPULAN</span><h3>{id==='TASK5_PROPOSAL'?'Upload Proposal PDF':'Lampiran Pendukung'}</h3>{id==='TASK5_PROPOSAL'?<><div className="notice"><FileText/> <strong>Tugas 5 wajib dikumpulkan sebagai PDF.</strong> Form WYSIWYG di atas berfungsi sebagai ringkasan evidence per aspek rubrik; naskah proposal BAB I–BAB III yang dinilai secara penuh berasal dari PDF.</div><label className="field"><span>File proposal PDF — wajib, maks. 5 MB</span><input type="file" accept="application/pdf,.pdf" onChange={e=>setFile(e.target.files?.[0]||null)}/></label><small className="muted">File tidak disimpan di draft browser. Pilih kembali PDF ketika akan mengirim tugas.</small></>:<div className="form-grid two"><label className="field"><span>URL dokumen / Google Drive (opsional)</span><input value={link} onChange={e=>{setLink(e.target.value);setDirty(true);}} placeholder="https://..."/></label><label className="field"><span>File pendukung (opsional, maks. 5 MB)</span><input type="file" onChange={e=>setFile(e.target.files?.[0]||null)}/></label></div>}<div className="right-actions"><button type="button" className="button soft" onClick={()=>saveDraft(false)}><Save/>Simpan Draft</button><button className="button primary" disabled={busy} onClick={()=>void submit()}><Upload/>{busy?'Mengirim...':latest?'Kirim Revisi':'Kirim Tugas'}</button></div></GlassCard>
+    </div>
   </AppShell></AuthGate>;
 }

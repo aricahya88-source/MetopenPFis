@@ -118,14 +118,27 @@ function listTasksService_(request) {
 }
 
 function taskDataService_(request,payload) {
-  var user=requireUser_(request),a=activityById_(payload.activity_id);if(!a)throw new Error('Aktivitas tidak ditemukan.');
-  if(a.type==='quiz')return {activity:normalizedActivity100_(a),latest:null,grade:null,comments:[]};
-  var subs=findMany_(LMS.SHEETS.SUBMISSIONS,'activity_id',a.activity_id).filter(function(s){return s.user_id===user.user_id;}).sort(function(x,y){return num_(y.version)-num_(x.version);});
-  var latest=subs[0]||null;
-  var grades=findMany_(LMS.SHEETS.GRADES,'activity_id',a.activity_id).filter(function(g){return g.user_id===user.user_id&&asBool_(g.published);}).sort(function(x,y){return new Date(y.graded_at)-new Date(x.graded_at);});
-  var comments=latest?findMany_(LMS.SHEETS.COMMENTS,'entity_id',latest.submission_id).filter(function(c){return c.entity_type==='submission';}):[];
-  var umap=userMap_();comments=comments.map(function(c){var x=cleanObj_(c);x.author=umap[c.user_id]||null;return x;});
-  return {activity:normalizedActivity100_(a),latest:latest?cleanObj_(latest):null,grade:grades[0]?normalizedGrade100_(grades[0]):null,comments:comments};
+  var user=requireUser_(request),activityId=String(payload.activity_id||''),a=activityById_(activityId);
+  if(!a)throw new Error('Aktivitas tidak ditemukan.');
+  if(a.type==='quiz')return {activity:normalizedActivity100_(a),latest:null,grade:null};
+
+  // Jalur ringan: satu bulk-read SUBMISSIONS dan satu bulk-read GRADES.
+  // Komentar tidak lagi dibaca karena workflow tugas memakai feedback penilaian dosen.
+  var latest=null,latestVersion=-1;
+  rows_(LMS.SHEETS.SUBMISSIONS).forEach(function(s){
+    if(String(s.activity_id)!==activityId||String(s.user_id)!==String(user.user_id))return;
+    var v=num_(s.version,0);
+    if(!latest||v>latestVersion){latest=s;latestVersion=v;}
+  });
+
+  var publishedGrade=null,publishedAt=0;
+  rows_(LMS.SHEETS.GRADES).forEach(function(g){
+    if(String(g.activity_id)!==activityId||String(g.user_id)!==String(user.user_id)||!asBool_(g.published))return;
+    var t=new Date(g.graded_at||g.updated_at||0).getTime();if(isNaN(t))t=0;
+    if(!publishedGrade||t>=publishedAt){publishedGrade=g;publishedAt=t;}
+  });
+
+  return {activity:normalizedActivity100_(a),latest:latest?cleanObj_(latest):null,grade:publishedGrade?normalizedGrade100_(publishedGrade):null};
 }
 function submitWorkService_(request,payload) {
   var user=requireUser_(request),a=activityById_(payload.activity_id);if(!a)throw new Error('Aktivitas tidak ditemukan.');
