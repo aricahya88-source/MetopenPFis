@@ -8,7 +8,7 @@ import AppShell from '@/components/AppShell';
 import AuthGate from '@/components/AuthGate';
 import GlassCard from '@/components/GlassCard';
 import RichHtml from '@/components/RichHtml';
-import { api, fileToBase64, getStoredUser } from '@/lib/api';
+import { api, getStoredUser, uploadFile } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 import { rubricFor, type RubricCriterion } from '@/lib/taskRubrics';
 import { FORMAL_TASKS } from '@/lib/courseConfig';
@@ -21,11 +21,13 @@ const RichTextEditor=dynamic(()=>import('@/components/RichTextEditor'),{
 });
 
 type TaskActivity={activity_id?:string;type?:string;title?:string;description_html?:string;max_score?:number;due_at?:string};
-type TaskSubmission={submission_id?:string;version?:number;content_html?:string;link_url?:string;file_url?:string;file_name?:string;submitted_at?:string};
+type ArticleSource={slot_no:number;url:string;file_url?:string;file_name?:string;mime_type?:string};
+type TaskSubmission={submission_id?:string;version?:number;content_html?:string;link_url?:string;file_url?:string;file_name?:string;submitted_at?:string;articles?:ArticleSource[]};
 type TaskGrade={score?:number;max_score?:number;feedback_html?:string};
 type TaskData={activity?:TaskActivity|null;latest?:TaskSubmission|null;grade?:TaskGrade|null};
 type FormState=Record<string,string>;
-type LocalDraft={taskId:string;form:FormState;link:string;savedAt:string};
+type LocalDraft={taskId:string;form:FormState;link:string;articles:ArticleSource[];savedAt:string};
+const emptyArticles=():ArticleSource[]=>[1,2,3,4,5].map(slot_no=>({slot_no,url:'',file_url:'',file_name:'',mime_type:''}));
 
 const TASK_IDS=['TASK1_ISSUE','TASK2_GAP','TASK3_DESIGN','TASK4_INSTRUMENT','TASK5_PROPOSAL'] as const;
 
@@ -146,11 +148,14 @@ function countArticleRows(html:string){
     return cells.length>=2;
   }).length;
 }
-function validate(taskId:string,form:FormState,file:File|null){
+function validate(taskId:string,form:FormState,file:File|null,articles:ArticleSource[],articleFiles:Record<number,File|null>){
   const rubric=rubricFor(taskId); if(!rubric)return 'Rubrik tugas tidak ditemukan.';
   const missing=rubric.criteria.filter(c=>stripHtml(form[c.id]||'').length<8).map(c=>c.name);
   if(missing.length)return `Lengkapi bagian rubrik berikut: ${missing.join('; ')}.`;
-  if(taskId==='TASK1_ISSUE'&&countArticleRows(form.T1C4||'')<5)return 'Tugas 1 wajib memuat minimal 5 artikel yang terisi pada bagian Argumentasi akademik dan referensi.';
+  if(taskId==='TASK1_ISSUE'){
+    const missingArticles=articles.filter(a=>!String(a.url||'').trim()&&!String(a.file_url||'').trim()&&!articleFiles[a.slot_no]);
+    if(missingArticles.length)return `Tugas 1 wajib melampirkan tepat 5 artikel. Lengkapi artikel nomor ${missingArticles.map(a=>a.slot_no).join(', ')} dengan link atau dokumen PDF.`;
+  }
   if(taskId==='TASK5_PROPOSAL'){
     if(!file)return 'Tugas 5 wajib dikumpulkan sebagai file PDF proposal.';
     const pdf=file.type==='application/pdf'||file.name.toLowerCase().endsWith('.pdf');
@@ -173,10 +178,10 @@ function readDraft_(taskId:string):LocalDraft|null{
     return parsed;
   }catch{return null;}
 }
-function writeDraft_(taskId:string,form:FormState,link:string){
+function writeDraft_(taskId:string,form:FormState,link:string,articles:ArticleSource[]){
   if(typeof window==='undefined')return '';
   const savedAt=new Date().toISOString();
-  const draft:LocalDraft={taskId,form,link,savedAt};
+  const draft:LocalDraft={taskId,form,link,articles,savedAt};
   localStorage.setItem(draftKey_(taskId),JSON.stringify(draft));
   return savedAt;
 }
@@ -184,7 +189,7 @@ function clearDraft_(taskId:string){if(typeof window!=='undefined')localStorage.
 function fallbackActivity_(taskId:string):TaskActivity{
   const task=FORMAL_TASKS.find(t=>t.code===taskId);
   if(task)return {activity_id:task.code,type:'assignment',title:task.title,description_html:`<p>${task.short}</p>`,max_score:100};
-  return {activity_id:taskId,type:'assignment',title:taskId||'Tugas',description_html:'<p>Instruksi detail akan dimuat dari backend Apps Script.</p>',max_score:100};
+  return {activity_id:taskId,type:'assignment',title:taskId||'Tugas',description_html:'<p>Instruksi detail akan dimuat dari database Supabase.</p>',max_score:100};
 }
 function draftTime_(iso:string){
   if(!iso)return '';
@@ -216,7 +221,7 @@ export default function TaskPage(){
   const id=useMemo(()=>Array.isArray(params?.id)?String(params.id[0]||''):String(params?.id||''),[params]);
   const rubric=useMemo(()=>id?rubricFor(id):undefined,[id]);
   const fallbackActivity=useMemo(()=>fallbackActivity_(id),[id]);
-  const[data,setData]=useState<TaskData|null>(null),[form,setForm]=useState<FormState>({}),[loading,setLoading]=useState(false),[error,setError]=useState(''),[backendWarning,setBackendWarning]=useState(''),[busy,setBusy]=useState(false),[pulling,setPulling]=useState(false),[link,setLink]=useState(''),[file,setFile]=useState<File|null>(null),[draftReady,setDraftReady]=useState(false),[draftSavedAt,setDraftSavedAt]=useState(''),[dirty,setDirty]=useState(false),[activeCriterion,setActiveCriterion]=useState('');
+  const[data,setData]=useState<TaskData|null>(null),[form,setForm]=useState<FormState>({}),[loading,setLoading]=useState(false),[error,setError]=useState(''),[backendWarning,setBackendWarning]=useState(''),[busy,setBusy]=useState(false),[pulling,setPulling]=useState(false),[link,setLink]=useState(''),[file,setFile]=useState<File|null>(null),[articles,setArticles]=useState<ArticleSource[]>(emptyArticles()),[articleFiles,setArticleFiles]=useState<Record<number,File|null>>({}),[draftReady,setDraftReady]=useState(false),[draftSavedAt,setDraftSavedAt]=useState(''),[dirty,setDirty]=useState(false),[activeCriterion,setActiveCriterion]=useState('');
   const hasLocalDraftRef=useRef(false);
 
   const load=useCallback(async(preserveLocalDraft=true)=>{
@@ -224,11 +229,13 @@ export default function TaskPage(){
     setLoading(true);setBackendWarning('');
     try{
       const result=await api<TaskData>('getTask',{activity_id:id});
-      if(!result?.activity)throw new Error('Data tugas dari Apps Script tidak lengkap.');
+      if(!result?.activity)throw new Error('Data tugas dari Supabase tidak lengkap.');
       setData(result);
       if(!(preserveLocalDraft&&hasLocalDraftRef.current)){
         setForm(parseForm(result.latest?.content_html,id)||emptyForm(id));
         setLink(result.latest?.link_url||'');
+        setArticles(id==='TASK1_ISSUE'?emptyArticles().map(base=>result.latest?.articles?.find(a=>Number(a.slot_no)===base.slot_no)||base):emptyArticles());
+        setArticleFiles({});
       }
     }catch(e){
       const msg=e instanceof Error?e.message:String(e);
@@ -243,6 +250,8 @@ export default function TaskPage(){
     hasLocalDraftRef.current=!!local;
     setForm(local?.form||emptyForm(id));
     setLink(local?.link||'');
+    setArticles(id==='TASK1_ISSUE'?(local?.articles?.length?emptyArticles().map(base=>local.articles.find(a=>Number(a.slot_no)===base.slot_no)||base):emptyArticles()):emptyArticles());
+    setArticleFiles({});
     setDraftSavedAt(local?.savedAt||'');
     setFile(null);setError('');setBackendWarning('');setDirty(false);setActiveCriterion('');setDraftReady(true);
     void load(true);
@@ -251,19 +260,19 @@ export default function TaskPage(){
   const saveDraft=useCallback((silent=false)=>{
     if(!id||!draftReady)return;
     try{
-      const saved=writeDraft_(id,form,link);
+      const saved=writeDraft_(id,form,link,articles);
       hasLocalDraftRef.current=true;setDraftSavedAt(saved);setDirty(false);
       if(!silent)setError('');
     }catch{
       if(!silent)setError('Draft tidak dapat disimpan di browser. Coba kurangi isi/gambar atau kosongkan penyimpanan browser.');
     }
-  },[id,draftReady,form,link]);
+  },[id,draftReady,form,link,articles]);
 
   useEffect(()=>{
     if(!draftReady||!dirty)return;
     const timer=window.setTimeout(()=>saveDraft(true),1500);
     return()=>window.clearTimeout(timer);
-  },[draftReady,dirty,form,link,saveDraft]);
+  },[draftReady,dirty,form,link,articles,saveDraft]);
 
   const updateField=(key:string,value:string)=>{setForm(prev=>({...prev,[key]:value}));setDirty(true);};
 
@@ -285,12 +294,35 @@ export default function TaskPage(){
   const submit=async()=>{
     if(!id)return;setBusy(true);setError('');
     try{
-      const message=validate(id,form,file);if(message)throw new Error(message);
+      const message=validate(id,form,file,articles,articleFiles);if(message)throw new Error(message);
       const content_html=buildSubmissionHtml(id,form);if(content_html.length>48000)throw new Error('Ringkasan form terlalu panjang. Ringkas isian; untuk Tugas 5, naskah lengkap tetap berada pada PDF.');
-      let file_base64='',file_name='',file_mime='';
-      if(file){if(file.size>5*1024*1024)throw new Error('Ukuran file maksimal 5 MB.');file_base64=await fileToBase64(file);file_name=file.name;file_mime=file.type||'application/octet-stream';}
-      await api('submitWork',{activity_id:id,content_html,link_url:id==='TASK5_PROPOSAL'?'':link.trim(),file_base64,file_name,file_mime});
-      clearDraft_(id);hasLocalDraftRef.current=false;setDraftSavedAt('');setDirty(false);setFile(null);
+
+      let file_name='',file_url='';
+      if(file){
+        if(file.size>5*1024*1024)throw new Error('Ukuran file maksimal 5 MB.');
+        const up=await uploadFile(file,'submissions');file_name=up.name||file.name;file_url=up.url;
+      }
+
+      let finalArticles=articles;
+      if(id==='TASK1_ISSUE'){
+        finalArticles=[];
+        for(const a of articles){
+          const selected=articleFiles[a.slot_no];
+          let next={...a,url:String(a.url||'').trim()};
+          if(selected){
+            if(selected.size>5*1024*1024)throw new Error(`Artikel ${a.slot_no}: ukuran file maksimal 5 MB.`);
+            const isPdf=selected.type==='application/pdf'||selected.name.toLowerCase().endsWith('.pdf');
+            if(!isPdf)throw new Error(`Artikel ${a.slot_no}: dokumen harus PDF.`);
+            const up=await uploadFile(selected,'submissions');
+            next={...next,file_name:up.name||selected.name,file_url:up.url,mime_type:up.mime_type||selected.type};
+          }
+          if(!next.url&&!next.file_url)throw new Error(`Artikel ${a.slot_no} belum memiliki link atau dokumen.`);
+          finalArticles.push(next);
+        }
+      }
+
+      await api('submitWork',{activity_id:id,content_html,link_url:id==='TASK5_PROPOSAL'?'':link.trim(),file_name,file_url,articles:id==='TASK1_ISSUE'?finalArticles:[]});
+      clearDraft_(id);hasLocalDraftRef.current=false;setDraftSavedAt('');setDirty(false);setFile(null);setArticleFiles({});
       await load(false);
     }catch(e){
       setError(e instanceof Error?e.message:String(e));
@@ -307,16 +339,17 @@ export default function TaskPage(){
       {id!=='TASK1_ISSUE'&&<button type="button" className="button soft compact" onClick={()=>void pullPrior()} disabled={pulling}><Download/>{pulling?'Menarik...':'Tarik ringkasan tugas sebelumnya'}</button>}
     </div>
     {draftSavedAt&&<div className="notice"><Clock3/><span><strong>Draft tersimpan:</strong> {draftTime_(draftSavedAt)}. Draft disimpan di browser/perangkat ini dan <strong>belum dikirim ke dosen</strong>.</span></div>}
-    {loading&&<div className="notice"><RefreshCw/><span>Menghubungkan Apps Script di latar belakang. Form tetap dapat diisi dan disimpan sebagai draft.</span></div>}
-    {backendWarning&&<div className="error-box"><div className="row gap"><CloudOff/><div><strong>Backend belum dapat dibaca.</strong><div>{backendWarning}</div><small>Form tetap aktif. Simpan sebagai Draft terlebih dahulu. Jika pesan menyebut respons bukan JSON, cek deployment Apps Script: Web App, Execute as Me, akses sesuai kebutuhan, dan gunakan URL yang berakhir <b>/exec</b>.</small></div></div></div>}
+    {loading&&<div className="notice"><RefreshCw/><span>Menghubungkan Supabase di latar belakang. Form tetap dapat diisi dan disimpan sebagai draft.</span></div>}
+    {backendWarning&&<div className="error-box"><div className="row gap"><CloudOff/><div><strong>Backend belum dapat dibaca.</strong><div>{backendWarning}</div><small>Form tetap aktif. Simpan sebagai Draft terlebih dahulu. Periksa SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, APP_SESSION_SECRET, dan PIN_PEPPER pada Environment Variables Vercel.</small></div></div></div>}
     {error&&<div className="error-box">{error}</div>}
     <div className="stack">
       <GlassCard><div className="row gap"><div className="icon-bubble teal"><ClipboardCheck/></div><div className="grow"><span className="eyebrow">{String(activity.type||'assignment').toUpperCase()}</span><h2>{activity.title||id}</h2></div></div><RichHtml html={activity.description_html||'<p>Instruksi belum diisi.</p>'}/><div className="row wrap gap"><span className="badge"><CheckCircle2/>Form 1:1 dengan rubrik</span><span className="badge">Total bobot 100%</span>{activity.due_at&&<span className="badge">{formatDate(activity.due_at)}</span>}</div></GlassCard>
       {rubric&&<GlassCard><div className="row gap"><div className="icon-bubble amber"><Scale/></div><div><span className="eyebrow">RUBRIK RESMI</span><h3>{rubric.name}</h3></div></div>{rubric.note&&<p className="source-note">{rubric.note}</p>}<p className="muted">Setiap aspek rubrik memiliki form WYSIWYG yang sama dengan LMS Multimedia. Untuk menjaga aplikasi tetap ringan, hanya <strong>satu editor</strong> yang dibuka pada satu waktu.</p></GlassCard>}
       {grade&&<GlassCard className="grade-highlight"><span className="eyebrow">NILAI TERBIT</span><h2>{Number(grade.score||0)} / {Number(grade.max_score||100)}</h2><RichHtml html={grade.feedback_html||'<p>Belum ada feedback tertulis.</p>'}/></GlassCard>}
-      {latest&&<GlassCard><span className="eyebrow">SUBMISSION TERAKHIR • VERSI {Number(latest.version||1)}</span><RichHtml html={latest.content_html||''}/><div className="row wrap gap">{latest.link_url&&<a className="button soft compact" target="_blank" rel="noreferrer" href={latest.link_url}><ExternalLink/>Buka tautan</a>}{latest.file_url&&<a className="button soft compact" target="_blank" rel="noreferrer" href={latest.file_url}><ExternalLink/>{latest.file_name||'Buka file'}</a>}</div>{latest.submitted_at&&<small>{formatDate(latest.submitted_at)}</small>}</GlassCard>}
+      {latest&&<GlassCard><span className="eyebrow">SUBMISSION TERAKHIR • VERSI {Number(latest.version||1)}</span><RichHtml html={latest.content_html||''}/>{id==='TASK1_ISSUE'&&latest.articles?.length?<div className="stack small-gap"><strong>5 sumber artikel</strong>{latest.articles.map(a=><div className="article-source-view" key={a.slot_no}><span className="badge">Artikel {a.slot_no}</span>{a.url&&<a className="button soft compact" target="_blank" rel="noreferrer" href={a.url}><ExternalLink/>Buka Link</a>}{a.file_url&&<a className="button soft compact" target="_blank" rel="noreferrer" href={a.file_url}><FileText/>{a.file_name||'Buka PDF'}</a>}</div>)}</div>:null}<div className="row wrap gap">{latest.link_url&&<a className="button soft compact" target="_blank" rel="noreferrer" href={latest.link_url}><ExternalLink/>Buka tautan</a>}{latest.file_url&&<a className="button soft compact" target="_blank" rel="noreferrer" href={latest.file_url}><ExternalLink/>{latest.file_name||'Buka file'}</a>}</div>{latest.submitted_at&&<small>{formatDate(latest.submitted_at)}</small>}</GlassCard>}
       <div className="section-title"><div><span className="eyebrow">FORM WYSIWYG BERBASIS RUBRIK</span><h2>{latest?'Perbaiki & Kirim Revisi':'Lengkapi Tugas'}</h2><p className="muted">Klik <b>Mulai Mengisi/Edit Jawaban</b> pada satu aspek. Editor WYSIWYG hanya dimuat saat diperlukan sehingga halaman lebih ringan. Perubahan otomatis dicadangkan sebagai draft lokal.</p></div></div>
       {rubric?.criteria.map(c=><RubricFormCard key={c.id} criterion={c} taskId={id} value={form[c.id]||''} onChange={v=>updateField(c.id,v)} active={activeCriterion===c.id} onActivate={()=>setActiveCriterion(c.id)} onFinish={()=>setActiveCriterion('')}/>)}
+      {id==='TASK1_ISSUE'&&<GlassCard><span className="eyebrow">SUMBER ARTIKEL • WAJIB 5</span><h3>Link atau Dokumen PDF Artikel</h3><p className="muted">Setiap artikel memiliki satu slot tetap. Isi URL artikel/DOI yang dapat dibuka, unggah PDF, atau keduanya. Sumber ini ikut tampil ketika proyek Anda dilihat mahasiswa lain.</p><div className="article-source-grid">{articles.map(a=><div className="article-source-card" key={a.slot_no}><div className="row between wrap gap"><strong>Artikel {a.slot_no}</strong>{(a.url||a.file_url||articleFiles[a.slot_no])&&<span className="badge success"><Check/>Siap</span>}</div><label className="field"><span>Link artikel / DOI / halaman jurnal</span><input type="url" value={a.url||''} onChange={e=>{const value=e.target.value;setArticles(prev=>prev.map(x=>x.slot_no===a.slot_no?{...x,url:value}:x));setDirty(true)}} placeholder="https://doi.org/... atau https://..."/></label><label className="field"><span>Dokumen artikel PDF (opsional bila link sudah ada)</span><input type="file" accept="application/pdf,.pdf" onChange={e=>{setArticleFiles(prev=>({...prev,[a.slot_no]:e.target.files?.[0]||null}));setDirty(true)}}/></label>{articleFiles[a.slot_no]&&<small className="muted">File baru: {articleFiles[a.slot_no]?.name}</small>}{!articleFiles[a.slot_no]&&a.file_url&&<a className="button soft compact" target="_blank" rel="noreferrer" href={a.file_url}><FileText/>{a.file_name||'PDF tersimpan'}</a>}</div>)}</div></GlassCard>}
       <GlassCard><span className="eyebrow">PENGUMPULAN</span><h3>{id==='TASK5_PROPOSAL'?'Upload Proposal PDF':'Lampiran Pendukung'}</h3>{id==='TASK5_PROPOSAL'?<><div className="notice"><FileText/> <strong>Tugas 5 wajib dikumpulkan sebagai PDF.</strong> Form WYSIWYG di atas berfungsi sebagai ringkasan evidence per aspek rubrik; naskah proposal BAB I–BAB III yang dinilai secara penuh berasal dari PDF.</div><label className="field"><span>File proposal PDF — wajib, maks. 5 MB</span><input type="file" accept="application/pdf,.pdf" onChange={e=>setFile(e.target.files?.[0]||null)}/></label><small className="muted">File tidak disimpan di draft browser. Pilih kembali PDF ketika akan mengirim tugas.</small></>:<div className="form-grid two"><label className="field"><span>URL dokumen / Google Drive (opsional)</span><input value={link} onChange={e=>{setLink(e.target.value);setDirty(true);}} placeholder="https://..."/></label><label className="field"><span>File pendukung (opsional, maks. 5 MB)</span><input type="file" onChange={e=>setFile(e.target.files?.[0]||null)}/></label></div>}<div className="right-actions"><button type="button" className="button soft" onClick={()=>saveDraft(false)}><Save/>Simpan Draft</button><button className="button primary" disabled={busy} onClick={()=>void submit()}><Upload/>{busy?'Mengirim...':latest?'Kirim Revisi':'Kirim Tugas'}</button></div></GlassCard>
     </div>
   </AppShell></AuthGate>;

@@ -1,7 +1,36 @@
-# Data Model METOPEN PFIS LMS
+# Data Model METOPEN PFIS LMS v2.0
 
-Tabel inti: `USERS`, `WEEKS`, `MATERIALS`, `ACTIVITIES`, `DISCUSSIONS`, `POSTS`, `COMMENTS`, `SUBMISSIONS`, `GRADES`, `RUBRICS`, `RUBRIC_SCORES`, `ANNOUNCEMENTS`, `ACTIVITY_LOG`.
+Tabel inti PostgreSQL:
 
-Tabel kompatibilitas engine (`QUIZZES`, `QUIZ_QUESTIONS`, `QUIZ_ATTEMPTS`, `GROUPS`, `GROUP_MEMBERS`, `PROJECT_PLANS`) tetap tersedia agar backend reusable, tetapi tidak menjadi seed utama mata kuliah METOPEN PFIS.
+- `users`
+- `weeks`
+- `materials`
+- `activities`
+- `discussions`
+- `posts`
+- `comments`
+- `submissions`
+- `submission_articles`
+- `grades`
+- `rubrics`
+- `rubric_scores`
+- `announcements`
+- `activity_log`
 
-Lima rubrik tersimpan dalam `RUBRICS.criteria_json`; skor per mahasiswa tersimpan di `RUBRIC_SCORES` dan hasil normalisasi 0–100 disalin ke `GRADES`.
+Tabel kompatibilitas data lama: `quizzes`, `quiz_questions`, `quiz_attempts`, `groups`, `group_members`, `project_plans`.
+
+## Relasi Tugas 1
+
+```text
+users 1 ── * submissions * ── 1 activities
+                    |
+                    └── 1..5 submission_articles
+```
+
+`submission_articles` memiliki `slot_no` 1–5, URL artikel, nama file, URL file Drive, dan MIME type. Unique constraint `(submission_id, slot_no)` memastikan satu slot per versi submission.
+
+## Visibilitas
+
+- Karya mahasiswa: submission terbaru Tugas 1–5 dapat dibaca oleh semua pengguna LMS yang sudah login melalui API aplikasi.
+- Nilai: hanya pemilik nilai dan admin/dosen pada alur yang relevan.
+- Hash PIN dan data autentikasi tidak pernah dikirim ke frontend.

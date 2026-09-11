@@ -17,6 +17,7 @@ const studentDesktop = [
   ['/weeks','Pertemuan',CalendarDays],
   ['/research-path','Jejak Penelitian',Route],
   ['/tasks','Tugas',ClipboardCheck],
+  ['/projects','Karya Mahasiswa',BookOpenCheck],
   ['/discussions','Diskusi',MessagesSquare],
   ['/grades','Nilai',Star]
 ] as const;
@@ -25,6 +26,7 @@ const studentMobile = [
   ['/dashboard','Home',House],
   ['/weeks','Pertemuan',CalendarDays],
   ['/tasks','Tugas',ClipboardCheck],
+  ['/projects','Karya',BookOpenCheck],
   ['/discussions','Diskusi',MessagesSquare],
   ['/grades','Nilai',Star]
 ] as const;

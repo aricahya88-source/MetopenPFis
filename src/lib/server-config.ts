@@ -1,15 +1,9 @@
-/**
- * Konfigurasi server-only.
- *
- * PENTING:
- * URL Apps Script TIDAK memiliki fallback hard-coded.
- * Dengan demikian Vercel tidak akan diam-diam memakai deployment lama yang
- * sudah dihapus/expired dan menghasilkan HTML 404.
- */
-const rawAppsScriptUrl = String(process.env.APPS_SCRIPT_URL || 'https://script.google.com/macros/s/AKfycbzvetBX-3GQH9FOhM2trDfcnZypQBpb_wvnvaro83N60MxqdqvUMJvdTfLF5-hTSjIM/exec').trim();
+/** Server-only configuration. Database utama menggunakan Supabase. Apps Script hanya menjadi jembatan upload ke Google Drive. */
+const rawAppsScriptUrl = String(process.env.APPS_SCRIPT_URL || '').trim();
 
 export const SERVER_CONFIG = Object.freeze({
   APPS_SCRIPT_URL: rawAppsScriptUrl,
-  REQUEST_TIMEOUT_MS: 30000,
-  MAX_UPLOAD_BYTES: 3 * 1024 * 1024
+  APPS_SCRIPT_UPLOAD_SECRET: String(process.env.APPS_SCRIPT_UPLOAD_SECRET || '').trim(),
+  REQUEST_TIMEOUT_MS: 45000,
+  MAX_UPLOAD_REQUEST_BYTES: 2 * 1024 * 1024
 });

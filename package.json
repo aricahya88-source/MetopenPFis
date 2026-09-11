@@ -1,12 +1,14 @@
 {
   "name": "metopen-pfis-lms",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint:content": "node tools/validate-content.mjs"
+    "lint:content": "node tools/validate-content.mjs",
+    "migrate:supabase": "node tools/migrate-xlsx-to-supabase.mjs",
+    "create:admin": "node tools/create-admin.mjs"
   },
   "dependencies": {
     "@tiptap/core": "2.27.2",

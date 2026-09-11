@@ -1,18 +1,19 @@
 # Changelog
 
-## v1.0.1 — Rubrik Tugas 3 = 100%
-- Rubrik Tugas 3 disesuaikan dari total 90% menjadi 100% atas keputusan dosen.
-- Bobot Rencana Analisis Data berubah dari 15% menjadi 25%.
-- Ditambahkan fungsi migrasi `upgradeTask3RubricTo100()` untuk instalasi v1.0.0 yang sudah berjalan.
-- Dokumentasi dan validator diperbarui.
+## 2.0.0 — Supabase database & peer project gallery
 
-## v1.0.0 — METOPEN PFIS
-- LMS dibangun khusus untuk Metode Penelitian Pendidikan Fisika, PFS115036, 3 SKS, semester 5.
-- 16 pertemuan dan 1 unit materi per pertemuan berdasarkan RPS.
-- 3 CPMK asli dan CPL CP-8 ditanamkan.
-- 5 tugas formal dari kisi-kisi tugas 2026.
-- 5 rubrik 4-level; penilaian rubrik langsung di Gradebook.
-- Normalisasi Tugas 3 dari total bobot sumber 90% ke skala 100 tanpa mengubah proporsi.
-- Forum diskusi terarah, submission/revisi, komentar dosen, gradebook, import/export Excel.
-- PWA Next.js + GAS/Sheets/Drive.
-- Branding hijau, oranye, abu-abu dengan logo METOPEN PFIS.
+- Database LMS dipindahkan dari Google Sheets/Apps Script ke Supabase PostgreSQL.
+- Google Apps Script disederhanakan menjadi upload-only bridge ke Google Drive.
+- Ditambahkan schema Supabase, migrator XLSX, dan tool bootstrap admin.
+- Tugas 1 memiliki lima slot sumber artikel; masing-masing mendukung link dan/atau PDF.
+- Sumber artikel melekat pada versi submission melalui tabel `submission_articles`.
+- Ditambahkan menu **Karya Mahasiswa** agar submission terbaru Tugas 1–5 dapat dilihat seluruh pengguna LMS yang sudah login.
+- Nilai, skor rubrik, email/NIM, dan feedback dosen tidak diekspos pada galeri mahasiswa.
+- Endpoint frontend dipindahkan ke `/api/lms`; `/api/gas` hanya mengizinkan `uploadAsset`.
+- Backup/restore admin diperbarui untuk PostgreSQL/JSON.
+- Struktur Apps Script lama disimpan di `apps-script-legacy/` hanya sebagai referensi migrasi.
+
+## 1.0.1
+
+- Penyesuaian rubrik Tugas 3 menjadi total 100%.
+- Penyempurnaan Gradebook dan validasi konten.

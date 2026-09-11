@@ -21,7 +21,7 @@ import {
   Quote, Undo2, Redo2, Link2, ImagePlus, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Table2, Rows3, Columns3, Trash2, Code2, Eraser, Pilcrow, ListChecks
 } from 'lucide-react';
-import { api, fileToBase64 } from '@/lib/api';
+import { uploadFile } from '@/lib/api';
 
 const TextDirection = Extension.create({
   name:'textDirection',
@@ -81,8 +81,7 @@ export default function RichTextEditor({
   const uploadImage=async(file:File)=>{
     if (file.size > 3*1024*1024) return alert('Gambar maksimal 3 MB.');
     try {
-      const base64=await fileToBase64(file);
-      const data=await api<{url:string}>('uploadAsset',{file_name:file.name,file_mime:file.type,base64,category:'assets'});
+      const data=await uploadFile(file,'assets');
       editor.chain().focus().setImage({src:data.url,alt:file.name}).run();
     } catch(err) { alert(err instanceof Error?err.message:String(err)); }
   };

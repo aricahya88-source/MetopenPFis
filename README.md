@@ -1,56 +1,66 @@
-# METOPEN PFIS LMS v1.0.1
+# METOPEN PFIS LMS v2.0.0 — Supabase Edition
 
-LMS/PWA untuk mata kuliah **Metode Penelitian Pendidikan Fisika (PFS115036, 3 SKS, Semester 5)**. Struktur pembelajaran mengikuti RPS OBE Dr. Ika Kartika, M.Pd.Si, sedangkan lima tugas produk dan rubrik mengikuti dokumen kisi-kisi tugas 2026.
+LMS/PWA untuk mata kuliah **Metode Penelitian Pendidikan Fisika (PFS115036, 3 SKS, Semester 5)**. Versi 2.0 memindahkan database akademik dari Google Sheets/Apps Script ke **Supabase PostgreSQL**. Google Apps Script tetap dipakai khusus sebagai jembatan unggah file ke Google Drive.
 
-## Fitur utama
+## Perubahan utama v2.0
 
-- Next.js + React + TypeScript, responsif dan installable sebagai PWA.
-- Google Apps Script sebagai backend, Google Sheets sebagai database, Google Drive untuk file submission.
-- Login NIM/email + PIN; role mahasiswa, dosen, admin.
-- 16 pertemuan dengan **1 unit materi inti per pertemuan**.
-- 3 CPMK asli dari RPS.
-- 5 tugas produk: analisis isu, analisis GAP/SOTA & artikel, rancangan desain penelitian, pengembangan instrumen, proposal BAB I–III.
-- Rubrik 1–4 untuk lima tugas; dosen dapat menilai langsung dari Gradebook.
-- Seluruh rubrik Tugas 1–5 kini memiliki total bobot **100%**. Khusus Tugas 3, bobot Rencana Analisis Data disesuaikan menjadi 25%.
-- Submission versi/revisi, URL Drive, unggah file kecil, komentar dosen tanpa harus memberi nilai.
-- Forum diskusi terarah dengan reply/thread dan penilaian opsional.
-- Gradebook skala 0–100, feedback, published/unpublished, import/export Excel.
-- Import mahasiswa Excel, pengumuman, activity log, backup/restore database multi-sheet.
-- Materi dan instruksi aktivitas dapat diedit WYSIWYG.
-- RPS DOCX dan kisi-kisi tugas PDF terintegrasi di LMS.
-- Branding hijau–oranye–abu-abu dengan logo METOPEN PFIS.
+- **Supabase/PostgreSQL** menjadi database utama untuk pengguna, pertemuan, materi, aktivitas, diskusi, submission, rubrik, nilai, pengumuman, dan log.
+- Browser tidak menerima `SUPABASE_SERVICE_ROLE_KEY`; seluruh akses database lewat **Next.js `/api/lms`**.
+- **Google Apps Script bukan database lagi**. Folder `apps-script/` hanya menangani upload file ke Google Drive dan dilindungi `UPLOAD_BRIDGE_SECRET`. File sampai 5 MB dipecah menjadi chunk kecil saat melewati route server agar upload tetap stabil di hosting serverless.
+- Tugas 1 — Analisis Isu menyediakan **5 slot sumber artikel tetap**. Setiap slot dapat berisi URL artikel/DOI, PDF, atau keduanya. Metadata artikel disimpan di tabel `submission_articles`; file PDF tetap di Drive.
+- Menu **Karya Mahasiswa** menampilkan submission terbaru Tugas 1–5 milik seluruh mahasiswa yang sudah login. Isi proyek, link, file, serta 5 artikel Tugas 1 dapat dibuka oleh mahasiswa lain untuk peer learning.
+- **Nilai, rubrik skor, dan feedback dosen tetap privat**; tidak ditampilkan pada galeri Karya Mahasiswa.
+- Submission tetap mendukung versi/revisi.
+- Login lama NIM/email + PIN dipertahankan. Hash PIN lama dapat dimigrasikan tanpa reset selama `PIN_PEPPER` lama ikut dipindahkan.
 
-## Sumber kurikulum yang ditanamkan
+## Arsitektur
 
-RPS menetapkan mata kuliah 3 SKS, semester 5, 3 CPMK dan rangkaian pertemuan mulai metode ilmiah, isu penelitian, pendekatan/jenis, variabel-sampling, hipotesis, kualitatif, kuantitatif, R&D, PTK, analisis data, analisis jurnal, proposal, UTS/UAS. LMS tidak menambahkan materi di luar kerangka tersebut sebagai materi wajib.
+```text
+Browser / PWA
+    |
+    +--> Next.js /api/lms --------> Supabase PostgreSQL
+    |         (service role server-only)
+    |
+    +--> Next.js /api/gas --------> Google Apps Script upload-only
+                                      |
+                                      +--> Google Drive
+```
 
-Dokumen tugas menetapkan lima produk dan rubrik. Pada sumber, Tugas 3 berjumlah 90%; atas keputusan dosen, rubrik LMS disesuaikan menjadi **20+25+15+15+25 = 100%** dengan menaikkan bobot **Rencana Analisis Data** menjadi 25%. Dokumen sumber tetap tidak diubah.
+## Struktur penting
 
-## Struktur folder
-
-- `src/app` — halaman mahasiswa dan admin.
-- `src/lib/courseConfig.ts` — 16 pertemuan, CPL/CPMK, dan lima tugas.
-- `src/lib/taskRubrics.ts` — rubrik lima tugas.
-- `apps-script/` — backend GAS lengkap dan fungsi setup.
-- `public/rps/` — RPS sumber.
-- `public/tugas/` — kisi-kisi tugas/rubrik sumber.
-- `docs/` — arsitektur, data model, learning flow, dan catatan validasi.
+- `src/app/api/lms/route.ts` — API LMS berbasis Supabase.
+- `src/lib/server/supabase.ts` — PostgREST server-side.
+- `src/lib/server/session.ts` — login/PIN/session server-side.
+- `src/app/projects/` — Karya Mahasiswa.
+- `src/app/tasks/[id]/page.tsx` — termasuk 5 input artikel pada Tugas 1.
+- `supabase/schema.sql` — schema PostgreSQL.
+- `tools/migrate-xlsx-to-supabase.mjs` — migrasi spreadsheet lama ke Supabase.
+- `tools/create-admin.mjs` — membuat/reset admin instalasi baru.
+- `apps-script/` — Apps Script upload-only.
+- `apps-script-legacy/` — backend Google Sheets lama, **referensi migrasi saja dan tidak dipakai runtime v2.0**.
 
 ## Instalasi singkat
 
-1. Buat satu Google Spreadsheet dan satu folder Google Drive khusus METOPEN PFIS.
-2. Buat project Google Apps Script dan salin seluruh file `apps-script/`.
-3. Isi `SPREADSHEET_ID` dan `ROOT_FOLDER_ID` pada `apps-script/StorageConfig.gs` (fungsi setup akan menyalinnya ke Script Properties).
-4. Jalankan `setupLms()` sekali dari editor Apps Script. Catat PIN admin yang muncul di log.
-5. Deploy Apps Script sebagai Web App.
-6. Isi `APPS_SCRIPT_URL` pada `.env.local` atau Environment Variables Vercel.
-7. Jalankan `npm install`, `npm run lint:content`, `npm run build`.
-8. Deploy frontend ke Vercel.
+1. Buat project Supabase dan jalankan `supabase/schema.sql` di SQL Editor. Untuk instalasi baru, lanjutkan dengan `supabase/seed.sql` agar 16 pertemuan, materi, aktivitas, diskusi, dan rubrik langsung tersedia.
+2. Isi environment variable dari `.env.example`.
+3. Untuk upgrade instalasi lama, unduh **Google Spreadsheet database asli** sebagai XLSX lalu jalankan:
+   ```bash
+   npm run migrate:supabase -- /path/ke/database-lama.xlsx
+   ```
+   Gunakan file spreadsheet asli karena sheet `USERS` harus membawa `pin_salt` dan `pin_hash`.
+4. Salin nilai `PIN_PEPPER` dari Script Properties backend Apps Script lama ke environment Vercel/Next.js. Ini membuat PIN mahasiswa lama tetap berlaku.
+5. Deploy folder `apps-script/` sebagai Apps Script Web App. Jalankan `setupUploadBridge()` sekali untuk membuat secret upload.
+6. Isi `APPS_SCRIPT_URL` dan `APPS_SCRIPT_UPLOAD_SECRET` pada environment frontend.
+7. Jalankan `npm install`, `npm run lint:content`, dan `npm run build`, lalu deploy ke Vercel.
 
-Panduan detail: `PETUNJUK_PEMASANGAN.md`.
+Untuk instalasi Supabase baru tanpa database lama, setelah schema dibuat jalankan:
 
-Jika LMS v1.0.0 sudah pernah dipasang, jalankan `upgradeTask3RubricTo100()` satu kali di Apps Script untuk memperbarui Rubrik Tugas 3 tanpa menghapus data mahasiswa/submission/nilai.
+```bash
+npm run create:admin -- --nim ADMIN --name "Administrator" --pin 123456
+```
+
+Panduan lengkap ada di `PETUNJUK_PEMASANGAN.md`.
 
 ## Keamanan
 
-URL Apps Script berada di environment server/Vercel. Spreadsheet ID dan Drive Folder ID hanya disimpan pada Script Properties Apps Script. PIN disimpan sebagai hash+salt, bukan plaintext.
+`SUPABASE_SERVICE_ROLE_KEY`, `APP_SESSION_SECRET`, `PIN_PEPPER`, dan `APPS_SCRIPT_UPLOAD_SECRET` hanya boleh berada di environment server. RLS diaktifkan pada seluruh tabel dan browser tidak diberi policy akses langsung. Karya mahasiswa dibuka melalui API aplikasi untuk pengguna yang sudah login, bukan sebagai tabel Supabase publik.
