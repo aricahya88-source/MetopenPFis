@@ -22,7 +22,9 @@ function assertSecrets() {
 }
 
 function b64url(input: Buffer | string) {
-  return Buffer.from(input).toString('base64url');
+  return typeof input === 'string'
+    ? Buffer.from(input, 'utf8').toString('base64url')
+    : input.toString('base64url');
 }
 
 export function hashPin(pin: string, salt: string) {
