@@ -1,0 +1,58 @@
+METOPEN PFIS — UI Refresh v2.1 PATCH
+====================================
+
+TUJUAN
+Patch ini hanya memperbarui layer UI/UX. Tidak mengubah Supabase, API route,
+autentikasi/session, Apps Script, schema SQL, atau data.
+
+CARA PASANG
+1. Backup / commit repository yang sekarang.
+2. Ekstrak ZIP patch ini.
+3. Copy folder `src` dari patch ke ROOT repository MetopenPFis.
+4. Pilih Replace/Overwrite untuk file dengan path yang sama.
+5. Commit dan push ke branch `main`.
+6. Vercel akan redeploy otomatis.
+
+FILE YANG DIUBAH
+- src/components/AppShell.tsx
+- src/app/globals.css
+- src/app/login/page.tsx
+- src/app/dashboard/page.tsx
+- src/app/weeks/page.tsx
+- src/app/weeks/[week]/page.tsx
+- src/app/tasks/page.tsx
+- src/app/tasks/[id]/page.tsx
+- src/app/research-path/page.tsx
+- src/app/discussions/page.tsx
+- src/app/grades/page.tsx
+- src/app/projects/page.tsx
+- src/app/admin/page.tsx
+
+PERUBAHAN UTAMA
+- Login dua panel dengan foto kampus dari URL yang diberikan user:
+  https://link.uin-suka.ac.id/theme/web/slide/s-uin2.jpg
+- Teks teknologi lama Google Sheets diganti menjadi Supabase.
+- Sidebar dibagi: Pembelajaran, Penelitian, Akademik, Pengelolaan.
+- Mobile bottom navigation disederhanakan menjadi 5 item + Lainnya.
+- Dashboard lebih action-oriented: pertemuan aktif, progress, deadline, pengumuman.
+- Pertemuan menjadi timeline per fase.
+- Detail pertemuan lebih terstruktur untuk tujuan, materi, evidence, aktivitas.
+- Tugas memiliki filter Semua/Aktif/Selesai dan status/deadline lebih jelas.
+- Detail tugas tetap memakai logic/form yang sama, hanya visual diperbarui.
+- Jejak penelitian menjadi timeline 5 tahap.
+- Diskusi, Nilai, Karya Mahasiswa, RPS, dan Dashboard Admin dipoles agar konsisten.
+- Glassmorphism dikurangi; content card dibuat solid white agar hierarchy lebih jelas.
+
+CATATAN FOTO LOGIN
+Foto login dipanggil langsung dari URL UIN Sunan Kalijaga di CSS.
+Jika server sumber tidak tersedia, panel memiliki fallback background hijau.
+
+VALIDASI
+- Seluruh file TSX yang diubah: syntax/transpile validation PASS.
+- CSS braces: balanced.
+- Tidak ada file backend/data yang berubah.
+- Full `next build` tidak dijalankan di sandbox karena npm dependency tidak dapat
+  diunduh dari environment ini. Setelah push, Vercel akan menjalankan build resmi.
+
+ROLLBACK
+Jika ingin kembali ke tampilan lama, restore 13 file di atas dari commit sebelum patch.

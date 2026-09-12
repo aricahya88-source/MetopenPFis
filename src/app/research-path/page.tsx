@@ -4,7 +4,7 @@ import AppShell from '@/components/AppShell';
 import AuthGate from '@/components/AuthGate';
 import GlassCard from '@/components/GlassCard';
 import { FORMAL_TASKS } from '@/lib/courseConfig';
-import { ArrowRight,BookOpenText,Search,GitBranch,ClipboardCheck,FileText,Route } from 'lucide-react';
+import { ArrowRight,BookOpenText,Search,GitBranch,ClipboardCheck,FileText,Route,CheckCircle2 } from 'lucide-react';
 const icons=[Search,BookOpenText,GitBranch,ClipboardCheck,FileText];
 const evidence=[
   ['Fenomena/masalah spesifik','Minimal 5 artikel satu tema','Topik/judul awal'],
@@ -13,4 +13,17 @@ const evidence=[
   ['Definisi & indikator','Kisi-kisi instrumen','Validitas & reliabilitas'],
   ['BAB I','BAB II','BAB III']
 ];
-export default function ResearchPathPage(){return <AuthGate><AppShell title="Jejak Penelitian"><div className="stack"><section className="hero-panel glass-panel"><div><span className="eyebrow">RESEARCH PIPELINE</span><h2>Dari Isu Menjadi Proposal Penelitian</h2><p>Lima tugas dirancang sebagai satu alur evidence. Mahasiswa tidak memulai ulang pada setiap tugas; output sebelumnya digunakan, diuji, dan diperbaiki untuk tahap berikutnya.</p></div><div className="icon-bubble teal" style={{width:72,height:72,borderRadius:24}}><Route/></div></section><div className="research-path-grid">{FORMAL_TASKS.map((t,i)=>{const Icon=icons[i];return <Link href={`/tasks/${t.code}`} className="glass-card research-step" key={t.code}><div className="row between"><span className="step-no">T{t.no}</span><Icon/></div><span className="eyebrow">{t.cpmk}</span><h3>{t.title}</h3><p className="muted tiny">{t.short}</p><div className="research-evidence"><strong>Evidence utama</strong>{evidence[i].map(x=><small key={x} style={{display:'block',marginTop:5}}>• {x}</small>)}</div><span className="button soft compact" style={{marginTop:'auto'}}>Buka tugas <ArrowRight/></span></Link>})}</div><GlassCard><span className="eyebrow">PRINSIP WORKFLOW</span><h3>Draft → Feedback → Revisi → Evidence Berikutnya</h3><p className="muted">Submission bersifat versioned. Dosen dapat memberi komentar tanpa nilai, kemudian mahasiswa mengirim revisi. Nilai formal dapat diberikan menggunakan rubrik yang tersedia pada Tugas 1–5.</p></GlassCard></div></AppShell></AuthGate>}
+export default function ResearchPathPage(){return <AuthGate><AppShell title="Jejak Penelitian"><div className="stack research-path-v2">
+  <section className="page-hero-compact research-hero"><div><span className="eyebrow">RESEARCH PIPELINE</span><h2>Dari Isu Menjadi Proposal Penelitian</h2><p>Lima tugas adalah satu perjalanan yang saling terhubung. Evidence dari tahap sebelumnya digunakan, diuji, dan diperbaiki pada tahap berikutnya.</p></div><div className="hero-icon-square"><Route/></div></section>
+  <div className="research-timeline-v2">
+    {FORMAL_TASKS.map((t,i)=>{const Icon=icons[i];return <div className="research-timeline-item" key={t.code}>
+      <div className="research-rail"><span>{t.no}</span>{i<FORMAL_TASKS.length-1&&<i/>}</div>
+      <Link href={`/tasks/${t.code}`} className="research-card-v2">
+        <div className="research-card-head"><div className={`research-icon phase-${i+1}`}><Icon/></div><div className="grow"><span className="eyebrow">TAHAP {t.no} • {t.cpmk}</span><h3>{t.title}</h3></div><ArrowRight/></div>
+        <p>{t.short}</p>
+        <div className="research-evidence-v2"><strong>Evidence utama</strong>{evidence[i].map(x=><span key={x}><CheckCircle2/>{x}</span>)}</div>
+      </Link>
+    </div>})}
+  </div>
+  <GlassCard className="workflow-note"><div className="icon-bubble teal"><Route/></div><div><span className="eyebrow">PRINSIP WORKFLOW</span><h3>Draft → Feedback → Revisi → Evidence Berikutnya</h3><p className="muted">Submission bersifat versioned. Dosen dapat memberi komentar, mahasiswa melakukan revisi, lalu hasilnya menjadi fondasi tahap penelitian berikutnya.</p></div></GlassCard>
+</div></AppShell></AuthGate>}

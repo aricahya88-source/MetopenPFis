@@ -1,10 +1,38 @@
 'use client';
-import { useEffect,useState } from 'react';
+import { useEffect,useMemo,useState } from 'react';
 import Link from 'next/link';
 import AppShell from '@/components/AppShell';
 import AuthGate from '@/components/AuthGate';
 import { api } from '@/lib/api';
 import type { WeekSummary } from '@/lib/types';
 import { MEETINGS,PHASES } from '@/lib/courseConfig';
-import { CalendarDays,ArrowRight,BookOpenText,ClipboardCheck,Flag } from 'lucide-react';
-export default function WeeksPage(){const[rows,setRows]=useState<WeekSummary[]>([]);const[error,setError]=useState('');useEffect(()=>{api<WeekSummary[]>('listWeeks').then(setRows).catch(e=>setError(e.message))},[]);return <AuthGate><AppShell title="Pertemuan Pembelajaran"><div className="section-title"><div><span className="eyebrow">16 PERTEMUAN • 3 SKS • 3 FASE</span><h2>Research Learning Journey</h2><p className="muted">Foundations → Research Design → Evidence & Proposal.</p></div></div><div className="two-column">{PHASES.map(p=><div className="glass-card feature-card" key={p.no}><div className="icon-bubble amber"><Flag/></div><div><span className="eyebrow">FASE {p.no} • {p.range}</span><h3>{p.label}</h3><p className="muted">{p.description}</p></div></div>)}</div>{error&&<div className="error-box">{error}</div>}<div className="week-grid">{rows.map(w=>{const m=MEETINGS.find(x=>x.no===w.week_no);return <Link key={w.week_id} href={`/weeks/${w.week_no}`} className="glass-card week-tile"><div className="week-number"><CalendarDays/><strong>{String(w.week_no).padStart(2,'0')}</strong></div><div className="grow"><span className="eyebrow">PERTEMUAN {w.week_no} • FASE {m?.phase||1}</span><h3>{w.title}</h3><p className="muted tiny">{m?.mode}</p><div className="row wrap gap"><span className="badge"><BookOpenText/>{w.material_count} unit materi</span><span className="badge"><ClipboardCheck/>{w.activity_count} aktivitas</span></div></div><ArrowRight/></Link>})}</div></AppShell></AuthGate>}
+import { CalendarDays,ArrowRight,BookOpenText,ClipboardCheck,Flag,CheckCircle2 } from 'lucide-react';
+
+export default function WeeksPage(){
+  const[rows,setRows]=useState<WeekSummary[]>([]);const[error,setError]=useState('');
+  useEffect(()=>{api<WeekSummary[]>('listWeeks').then(setRows).catch(e=>setError(e.message))},[]);
+  const rowsByWeek=useMemo(()=>Object.fromEntries(rows.map(w=>[w.week_no,w] as const)),[rows]);
+  return <AuthGate><AppShell title="Pertemuan">
+    <div className="stack weeks-v2">
+      <section className="page-hero-compact"><div><span className="eyebrow">16 PERTEMUAN • 3 FASE PEMBELAJARAN</span><h2>Research Learning Journey</h2><p>Ikuti alur dari fondasi penelitian, perancangan metode, hingga sintesis evidence dan proposal.</p></div><Link href="/rencana-pembelajaran" className="button soft compact">Lihat RPS <ArrowRight/></Link></section>
+      {error&&<div className="error-box">{error}</div>}
+      {PHASES.map(phase=>{
+        const meetings=MEETINGS.filter(m=>m.phase===phase.no);
+        return <section className="phase-section" key={phase.no}>
+          <div className="phase-header">
+            <div className={`phase-marker phase-${phase.no}`}><Flag/></div>
+            <div className="grow"><div className="row wrap gap"><span className="eyebrow">FASE {phase.no}</span><span className="badge">{phase.range}</span></div><h3>{phase.label}</h3><p>{phase.description}</p></div>
+            <span className="phase-count">{meetings.length} pertemuan</span>
+          </div>
+          <div className="phase-meeting-list">
+            {meetings.map(m=>{const w=rowsByWeek[m.no];return <Link key={m.no} href={`/weeks/${m.no}`} className="meeting-row-card">
+              <div className="meeting-step"><span>{m.no}</span></div>
+              <div className="grow"><div className="row wrap gap"><strong>{w?.title||m.title}</strong>{m.activityHref&&<span className="badge success"><CheckCircle2/>Ada aktivitas</span>}</div><small>{m.mode}</small><div className="row wrap gap meeting-meta"><span><BookOpenText/>{w?.material_count??0} materi</span><span><ClipboardCheck/>{w?.activity_count??0} aktivitas</span></div></div>
+              <ArrowRight className="meeting-arrow"/>
+            </Link>})}
+          </div>
+        </section>;
+      })}
+    </div>
+  </AppShell></AuthGate>;
+}
